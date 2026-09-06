@@ -1,6 +1,7 @@
 #include "Core/ProximaCharacter.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Components/InputComponent.h"
+#include "Interaction/ProximaInteractionSubsystem.h"
 
 AProximaCharacter::AProximaCharacter()
 {
@@ -58,7 +59,18 @@ void AProximaCharacter::MoveForward(float Value)
         return;
     }
 
-    // Camera-relative movement: forward is control yaw direction.
+    // Never allow character movement during Build Mode.
+    if (UGameInstance* GI = GetWorld() ? GetWorld()->GetGameInstance() : nullptr)
+    {
+        if (UProximaInteractionSubsystem* Sub = GI->GetSubsystem<UProximaInteractionSubsystem>())
+        {
+            if (Sub->IsBuildModeActive())
+            {
+                return;
+            }
+        }
+    }
+
     const FRotator YawRotation(0.0f, GetControlRotation().Yaw, 0.0f);
     AddMovementInput(FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X), Value);
 }
@@ -68,6 +80,18 @@ void AProximaCharacter::MoveRight(float Value)
     if (Value == 0.0f)
     {
         return;
+    }
+
+    // Never allow character movement during Build Mode.
+    if (UGameInstance* GI = GetWorld() ? GetWorld()->GetGameInstance() : nullptr)
+    {
+        if (UProximaInteractionSubsystem* Sub = GI->GetSubsystem<UProximaInteractionSubsystem>())
+        {
+            if (Sub->IsBuildModeActive())
+            {
+                return;
+            }
+        }
     }
 
     const FRotator YawRotation(0.0f, GetControlRotation().Yaw, 0.0f);
