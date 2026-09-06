@@ -13,6 +13,8 @@
 #include "GameFramework/PlayerController.h"
 #include "InputCoreTypes.h"
 #include "Interaction/ProximaInteractionSubsystem.h"
+#include "Save/ProximaSaveSystem.h"
+#include "Save/ProximaSaveData.h"
 
 AProximaPlayerController::AProximaPlayerController()
 {
@@ -91,6 +93,10 @@ void AProximaPlayerController::SetupInputComponent()
     InputComponent->BindKey(EKeys::RightShift, IE_Released, this, &AProximaPlayerController::HandleSprintReleased);
     InputComponent->BindKey(EKeys::MiddleMouseButton, IE_Pressed, this, &AProximaPlayerController::HandleBuildRotatePressed);
     InputComponent->BindKey(EKeys::MiddleMouseButton, IE_Released, this, &AProximaPlayerController::HandleBuildRotateReleased);
+
+    // Prototype save / load (vertical slice). F5 save / F9 load.
+    InputComponent->BindKey(EKeys::F5, IE_Pressed, this, &AProximaPlayerController::HandleSaveProperty);
+    InputComponent->BindKey(EKeys::F9, IE_Pressed, this, &AProximaPlayerController::HandleLoadProperty);
 }
 
 void AProximaPlayerController::Tick(float DeltaSeconds)
@@ -351,14 +357,34 @@ void AProximaPlayerController::HandleWallsChanged()
 // Mode-aware Live / Build camera input handlers
 void AProximaPlayerController::HandleKeyboardMovement(float DeltaSeconds)
 {
-    // Character axis bindings (MoveForward / MoveRight) handle Live movement.
-    // This Tick function only handles Build-mode camera pan using direct key polling,
-    // because pan speed must be applied continuously with DeltaSeconds.
-    if (!IsBuildModeActive())
+    if (IsBuildModeActive())
     {
+        // Build mode: WASD pans the construction camera (not the character).
+        const float ForwardValue =
+            (IsInputKeyDown(EKeys::W) ? 1.0f : 0.0f) -
+            (IsInputKeyDown(EKeys::S) ? 1.0f : 0.0f);
+        const float RightValue =
+            (IsInputKeyDown(EKeys::D) ? 1.0f : 0.0f) -
+            (IsInputKeyDown(EKeys::A) ? 1.0f : 0.0f);
+
+        if (FMath::IsNearlyZero(ForwardValue) && FMath::IsNearlyZero(RightValue))
+        {
+            return;
+        }
+
+        if (IsValid(BuildCameraActor))
+        {
+            const FVector2D PanDeltaCm(
+                ForwardValue * BuildCameraPanSpeed * DeltaSeconds,
+                RightValue * BuildCameraPanSpeed * DeltaSeconds);
+            BuildCameraActor->Pan(PanDeltaCm);
+        }
         return;
     }
 
+    // Live mode: direct WASD polling drives character movement.
+    // One coherent architecture — no overlapping axis-bindings, no hidden
+    // EnhancedPlayerInput conflicts.
     const float ForwardValue =
         (IsInputKeyDown(EKeys::W) ? 1.0f : 0.0f) -
         (IsInputKeyDown(EKeys::S) ? 1.0f : 0.0f);
@@ -366,17 +392,16 @@ void AProximaPlayerController::HandleKeyboardMovement(float DeltaSeconds)
         (IsInputKeyDown(EKeys::D) ? 1.0f : 0.0f) -
         (IsInputKeyDown(EKeys::A) ? 1.0f : 0.0f);
 
-    if (FMath::IsNearlyZero(ForwardValue) && FMath::IsNearlyZero(RightValue))
+    if (AProximaCharacter* Char = Cast<AProximaCharacter>(GetPawn()))
     {
-        return;
-    }
-
-    if (IsValid(BuildCameraActor))
-    {
-        const FVector2D PanDeltaCm(
-            ForwardValue * BuildCameraPanSpeed * DeltaSeconds,
-            RightValue * BuildCameraPanSpeed * DeltaSeconds);
-        BuildCameraActor->Pan(PanDeltaCm);
+        if (FMath::Abs(ForwardValue) > KINDA_SMALL_NUMBER)
+        {
+            Char->MoveForward(ForwardValue);
+        }
+        if (FMath::Abs(RightValue) > KINDA_SMALL_NUMBER)
+        {
+            Char->MoveRight(RightValue);
+        }
     }
 }
 
@@ -572,4 +597,49 @@ void AProximaPlayerController::HandleRedoAction()
             CommandManager->Redo();
         }
     }
+}
+
+void AProximaPlayerController::HandleSaveProperty()
+{
+    UGameInstance* GameInstance = GetGameInstance();
+    UProximaSaveSystem* SaveSystem = GameInstance ? GameInstance->GetSubsystem<UProximaSaveSystem>() : nullptr;
+    UProximaBuildingManager* BuildingManager = GameInstance ? GameInstance->GetSubsystem<UProximaBuildingManager>() : nullptr;
+    if (!SaveSystem || !BuildingManager)
+    {
+        return;
+    }
+
+    UProximaSaveData* Data = NewObject<UProximaSaveData>(GetWorld());
+    if (!Data)
+    {
+        return;
+    }
+
+    Data->Walls = BuildingManager->GetAllWalls();
+    Data->Properties.Reset();
+    SaveSystem->SaveProperty(TEXT("DefaultSlot"), Data);
+}
+
+void AProximaPlayerController::HandleLoadProperty()
+{
+    UGameInstance* GameInstance = GetGameInstance();
+    UProximaSaveSystem* SaveSystem = GameInstance ? GameInstance->GetSubsystem<UProximaSaveSystem>() : nullptr;
+    UProximaBuildingManager* BuildingManager = GameInstance ? GameInstance->GetSubsystem<UProximaBuildingManager>() : nullptr;
+    if (!SaveSystem || !BuildingManager)
+    {
+        return;
+    }
+
+    UProximaSaveData* OutData = nullptr;
+    if (!SaveSystem->LoadProperty(TEXT("DefaultSlot"), OutData) || !OutData)
+    {
+        return;
+    }
+
+    BuildingManager->ResetWalls();
+    for (const FProximaWallData& Wall : OutData->Walls)
+    {
+        BuildingManager->AddWall(Wall);
+    }
+    RebuildAllWallActors();
 }

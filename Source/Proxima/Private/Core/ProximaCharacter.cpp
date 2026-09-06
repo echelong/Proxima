@@ -41,15 +41,9 @@ AProximaCharacter::AProximaCharacter()
 void AProximaCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
     Super::SetupPlayerInputComponent(PlayerInputComponent);
-    if (!PlayerInputComponent)
-    {
-        return;
-    }
-
-    // Single authoritative movement architecture: Character owns WASD via axis bindings.
-    // W=+1.0, S=-1.0 → MoveForward.  D=+1.0, A=-1.0 → MoveRight.
-    PlayerInputComponent->BindAxis(TEXT("MoveForward"), this, &AProximaCharacter::MoveForward);
-    PlayerInputComponent->BindAxis(TEXT("MoveRight"),   this, &AProximaCharacter::MoveRight);
+    // Movement is driven by AProximaPlayerController::HandleKeyboardMovement via
+    // direct key polling in Tick. No BindAxis here — avoids EnhancedPlayerInput
+    // interference with legacy axis names.
 }
 
 void AProximaCharacter::MoveForward(float Value)

@@ -87,6 +87,8 @@ private:
     void HandleBuildZoom(float Value);
     void HandleBuildRotatePressed();
     void HandleBuildRotateReleased();
+    void HandleSaveProperty();
+    void HandleLoadProperty();
 
     void ActivateBuildCamera();
     void DeactivateBuildCamera();
