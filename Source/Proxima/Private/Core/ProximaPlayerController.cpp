@@ -1,12 +1,16 @@
 #include "Core/ProximaPlayerController.h"
+#include "Core/ProximaCharacter.h"
 
 #include "BuildMode/ProximaBuildPlaneTrace.h"
 #include "Building/ProximaBuildingManager.h"
 #include "Commands/ProximaCommandManager.h"
 #include "Commands/ProximaWallCommands.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Components/InputComponent.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/PlayerController.h"
 #include "InputCoreTypes.h"
 #include "Interaction/ProximaInteractionSubsystem.h"
 
@@ -29,6 +33,15 @@ void AProximaPlayerController::BeginPlay()
     }
 
     RebuildAllWallActors();
+
+    if (PlayerCameraManager)
+    {
+        if (const AProximaCharacter* Char = Cast<AProximaCharacter>(GetPawn()))
+        {
+            PlayerCameraManager->ViewPitchMin = Char->LiveCameraPitchMin;
+            PlayerCameraManager->ViewPitchMax = Char->LiveCameraPitchMax;
+        }
+    }
 }
 
 void AProximaPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -42,6 +55,11 @@ void AProximaPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
     }
 
     DestroyWallPreview();
+    if (IsValid(BuildCameraActor))
+    {
+        BuildCameraActor->Destroy();
+        BuildCameraActor = nullptr;
+    }
     Super::EndPlay(EndPlayReason);
 }
 
@@ -53,18 +71,33 @@ void AProximaPlayerController::SetupInputComponent()
         return;
     }
 
-    // Press events avoid the repeated toggles/undo actions caused by per-frame key polling.
+    // Build mode mouse keys (pressed events, no hold-repeat bug)
     InputComponent->BindKey(EKeys::B, IE_Pressed, this, &AProximaPlayerController::ToggleBuildMode);
     InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AProximaPlayerController::HandlePrimaryBuildAction);
     InputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AProximaPlayerController::HandleCancelBuildAction);
     InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AProximaPlayerController::HandleCancelBuildAction);
     InputComponent->BindKey(EKeys::Z, IE_Pressed, this, &AProximaPlayerController::HandleUndoAction);
     InputComponent->BindKey(EKeys::Y, IE_Pressed, this, &AProximaPlayerController::HandleRedoAction);
+
+    // Keyboard movement is polled directly in Tick so WASD does not depend on
+    // legacy axis-map loading under EnhancedPlayerInput. Mouse axes remain mapped.
+    InputComponent->BindAxis(TEXT("Turn"), this, &AProximaPlayerController::HandleTurn);
+    InputComponent->BindAxis(TEXT("LookUp"), this, &AProximaPlayerController::HandleLookUp);
+    InputComponent->BindAxis(TEXT("BuildZoom"), this, &AProximaPlayerController::HandleBuildZoom);
+
+    InputComponent->BindKey(EKeys::LeftShift, IE_Pressed, this, &AProximaPlayerController::HandleSprintPressed);
+    InputComponent->BindKey(EKeys::LeftShift, IE_Released, this, &AProximaPlayerController::HandleSprintReleased);
+    InputComponent->BindKey(EKeys::RightShift, IE_Pressed, this, &AProximaPlayerController::HandleSprintPressed);
+    InputComponent->BindKey(EKeys::RightShift, IE_Released, this, &AProximaPlayerController::HandleSprintReleased);
+    InputComponent->BindKey(EKeys::MiddleMouseButton, IE_Pressed, this, &AProximaPlayerController::HandleBuildRotatePressed);
+    InputComponent->BindKey(EKeys::MiddleMouseButton, IE_Released, this, &AProximaPlayerController::HandleBuildRotateReleased);
 }
 
 void AProximaPlayerController::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+
+    HandleKeyboardMovement(DeltaSeconds);
 
     if (!WallSession || !IsBuildModeActive() || WallSession->GetState() != EProximaPlacementState::Previewing)
     {
@@ -127,13 +160,19 @@ void AProximaPlayerController::ToggleBuildMode()
         Interaction->SetInteractionMode(EProximaInteractionMode::Live);
         WallSession->CancelPlacement();
         DestroyWallPreview();
-        bShowMouseCursor = false;
+        bBuildCameraRotateHeld = false;
+        DeactivateBuildCamera();
     }
     else
     {
+        if (AProximaCharacter* Char = Cast<AProximaCharacter>(GetPawn()))
+        {
+            // Never carry sprint state/speed across the Build transition.
+            Char->StopSprintBP();
+        }
         Interaction->SetInteractionMode(EProximaInteractionMode::Build);
         WallSession->BeginPlacement();
-        bShowMouseCursor = true;
+        ActivateBuildCamera();
     }
 }
 
@@ -307,6 +346,160 @@ void AProximaPlayerController::DestroyWallPreview()
 void AProximaPlayerController::HandleWallsChanged()
 {
     RebuildAllWallActors();
+}
+
+// Mode-aware Live / Build camera input handlers
+void AProximaPlayerController::HandleKeyboardMovement(float DeltaSeconds)
+{
+    // Character axis bindings (MoveForward / MoveRight) handle Live movement.
+    // This Tick function only handles Build-mode camera pan using direct key polling,
+    // because pan speed must be applied continuously with DeltaSeconds.
+    if (!IsBuildModeActive())
+    {
+        return;
+    }
+
+    const float ForwardValue =
+        (IsInputKeyDown(EKeys::W) ? 1.0f : 0.0f) -
+        (IsInputKeyDown(EKeys::S) ? 1.0f : 0.0f);
+    const float RightValue =
+        (IsInputKeyDown(EKeys::D) ? 1.0f : 0.0f) -
+        (IsInputKeyDown(EKeys::A) ? 1.0f : 0.0f);
+
+    if (FMath::IsNearlyZero(ForwardValue) && FMath::IsNearlyZero(RightValue))
+    {
+        return;
+    }
+
+    if (IsValid(BuildCameraActor))
+    {
+        const FVector2D PanDeltaCm(
+            ForwardValue * BuildCameraPanSpeed * DeltaSeconds,
+            RightValue * BuildCameraPanSpeed * DeltaSeconds);
+        BuildCameraActor->Pan(PanDeltaCm);
+    }
+}
+
+void AProximaPlayerController::HandleTurn(float Value)
+{
+    if (Value == 0.0f)
+    {
+        return;
+    }
+
+    if (IsBuildModeActive())
+    {
+        // Normal mouse movement remains dedicated to the wall cursor. Rotate only during MMB drag.
+        if (bBuildCameraRotateHeld && IsValid(BuildCameraActor))
+        {
+            BuildCameraActor->RotateYaw(Value * BuildCameraRotateSpeed);
+        }
+        return;
+    }
+
+    AddYawInput(Value);
+}
+
+void AProximaPlayerController::HandleLookUp(float Value)
+{
+    if (!IsBuildModeActive() && Value != 0.0f)
+    {
+        AddPitchInput(Value);
+    }
+}
+
+void AProximaPlayerController::HandleSprintPressed()
+{
+    if (IsBuildModeActive())
+    {
+        return;
+    }
+
+    if (AProximaCharacter* Char = Cast<AProximaCharacter>(GetPawn()))
+    {
+        Char->StartSprintBP();
+    }
+}
+
+void AProximaPlayerController::HandleSprintReleased()
+{
+    // Always clear sprint, even if Shift is released after entering Build Mode.
+    if (AProximaCharacter* Char = Cast<AProximaCharacter>(GetPawn()))
+    {
+        Char->StopSprintBP();
+    }
+}
+
+void AProximaPlayerController::HandleBuildZoom(float Value)
+{
+    if (!IsBuildModeActive() || !IsValid(BuildCameraActor) || Value == 0.0f)
+    {
+        return;
+    }
+
+    // Mouse wheel is an impulse, not a time-based axis. Wheel up zooms in.
+    BuildCameraActor->Zoom(-Value * BuildCameraZoomSpeed);
+}
+
+void AProximaPlayerController::HandleBuildRotatePressed()
+{
+    if (IsBuildModeActive())
+    {
+        bBuildCameraRotateHeld = true;
+    }
+}
+
+void AProximaPlayerController::HandleBuildRotateReleased()
+{
+    bBuildCameraRotateHeld = false;
+}
+
+void AProximaPlayerController::ActivateBuildCamera()
+{
+    bool bSpawnedCamera = false;
+    if (!IsValid(BuildCameraActor))
+    {
+        FActorSpawnParameters Params;
+        Params.Owner = this;
+        Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        BuildCameraActor = GetWorld()->SpawnActor<AProximaBuildCamera>(
+            AProximaBuildCamera::StaticClass(),
+            FVector::ZeroVector,
+            FRotator::ZeroRotator,
+            Params);
+        bSpawnedCamera = IsValid(BuildCameraActor);
+    }
+
+    if (IsValid(BuildCameraActor))
+    {
+        // Initialize once. Re-entering Build Mode preserves the user's construction view.
+        if (bSpawnedCamera)
+        {
+            BuildCameraActor->InitializeOverPoint(FVector(0.0f, 0.0f, BuildPlaneZCm + 200.0f));
+        }
+        SetViewTargetWithBlend(BuildCameraActor, 0.3f);
+    }
+
+    bShowMouseCursor = true;
+    bEnableMouseOverEvents = true;
+    FInputModeGameAndUI Mode;
+    Mode.SetHideCursorDuringCapture(false);
+    Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+    SetInputMode(Mode);
+}
+
+void AProximaPlayerController::DeactivateBuildCamera()
+{
+    if (ACharacter* Char = Cast<ACharacter>(GetPawn()))
+    {
+        SetViewTargetWithBlend(Char, 0.3f);
+    }
+
+    bBuildCameraRotateHeld = false;
+    bShowMouseCursor = false;
+    bEnableMouseOverEvents = false;
+    FInputModeGameOnly Mode;
+    SetInputMode(Mode);
 }
 
 void AProximaPlayerController::HandlePrimaryBuildAction()
