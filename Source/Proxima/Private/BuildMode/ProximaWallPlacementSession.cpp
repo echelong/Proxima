@@ -1,7 +1,7 @@
 #include "BuildMode/ProximaWallPlacementSession.h"
 #include "BuildMode/ProximaWallSnapping.h"
-
 #include "Building/ProximaBuildingManager.h"
+
 void UProximaWallPlacementSession::BeginPlacement()
 {
     CurrentState = EProximaPlacementState::ChoosingStart;
@@ -34,27 +34,40 @@ void UProximaWallPlacementSession::UpdateEndpoint(const FVector2D& CandidateCm, 
         bCanConfirm = false;
         CurrentEndpointCm = CandidateCm;
         SnappedEndpointCm = SnappedCm;
+        PreviewLengthM = 0.0f;
         return;
     }
 
-    // Reject duplicate walls (same endpoints, same orientation).
-    if (UProximaBuildingManager* Manager = GetWorld() ? Cast<UProximaBuildingManager>(GetWorld()->GetGameInstance()->GetSubsystem<UProximaBuildingManager>()) : nullptr)
+    // Reject duplicate walls (same endpoints, same orientation) — only when a world exists.
+    if (UWorld* World = GetWorld())
     {
-        for (const FProximaWallData& W : Manager->GetAllWalls())
+        if (UGameInstance* GI = World->GetGameInstance())
         {
-            if (W.IsDegenerate()) continue;
-            const FVector2D WStart = W.StartPoint.ToVector2D();
-            const FVector2D WEnd = W.EndPoint.ToVector2D();
-            const float Tol = 5.0f;
-            // Same wall in either direction (start→end or end→start).
-            bool bMatchesForward = FVector2D::Distance(WStart, SnappedCm) < Tol &&
-                                  FVector2D::Distance(WEnd, StartPointCm) < Tol;
-            bool bMatchesReverse = FVector2D::Distance(WEnd, SnappedCm) < Tol &&
-                                  FVector2D::Distance(WStart, StartPointCm) < Tol;
-            if (bMatchesForward || bMatchesReverse)
+            if (UProximaBuildingManager* Manager = Cast<UProximaBuildingManager>(GI->GetSubsystem<UProximaBuildingManager>()))
             {
-                bCanConfirm = false;
-                return;
+                for (const FProximaWallData& W : Manager->GetAllWalls())
+                {
+                    if (W.IsDegenerate())
+                    {
+                        continue;
+                    }
+                    const FVector2D WStart = W.StartPoint.ToVector2D();
+                    const FVector2D WEnd = W.EndPoint.ToVector2D();
+                    const float Tol = 5.0f;
+                    // Same wall in either direction (start→end or end→start).
+                    bool bMatchesForward = FVector2D::Distance(WStart, SnappedCm) < Tol &&
+                                          FVector2D::Distance(WEnd, StartPointCm) < Tol;
+                    bool bMatchesReverse = FVector2D::Distance(WEnd, SnappedCm) < Tol &&
+                                          FVector2D::Distance(WStart, StartPointCm) < Tol;
+                    if (bMatchesForward || bMatchesReverse)
+                    {
+                        bCanConfirm = false;
+                        PreviewLengthM = FVector2D::Distance(StartPointCm, SnappedCm) / 100.0f;
+                        CurrentEndpointCm = CandidateCm;
+                        SnappedEndpointCm = SnappedCm;
+                        return;
+                    }
+                }
             }
         }
     }

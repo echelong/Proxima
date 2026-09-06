@@ -101,6 +101,43 @@ bool FProximaWallSnappingTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FProximaWallSessionErgonomicsTest,
+    "Proxima.BuildMode.SessionErgonomics",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::SmokeFilter)
+
+bool FProximaWallSessionErgonomicsTest::RunTest(const FString& Parameters)
+{
+    TStrongObjectPtr<UProximaWallPlacementSession> Session(NewObject<UProximaWallPlacementSession>());
+    Session->MinWallLengthCm = 1.0f;
+
+    Session->BeginPlacement();
+    Session->ConfirmStart(FVector2D(0.0f, 0.0f));
+
+    // Length metric: 300 cm → 3.00 m
+    Session->UpdateEndpoint(FVector2D(300.0f, 0.0f), FVector2D(300.0f, 0.0f));
+    TestTrue(TEXT("PreviewLengthM is 3.0 for 300cm wall"),
+        FMath::IsNearlyEqual(Session->PreviewLengthM, 3.0f, 0.001f));
+    TestTrue(TEXT("3m wall can be confirmed"), Session->bCanConfirm);
+
+    // Length metric: 450 cm → 4.50 m
+    Session->UpdateEndpoint(FVector2D(450.0f, 0.0f), FVector2D(450.0f, 0.0f));
+    TestTrue(TEXT("PreviewLengthM is 4.5 for 450cm wall"),
+        FMath::IsNearlyEqual(Session->PreviewLengthM, 4.5f, 0.001f));
+
+    // Near-zero wall: 0.2 cm → cannot confirm
+    Session->UpdateEndpoint(FVector2D(0.2f, 0.0f), FVector2D(0.0f, 0.0f));
+    TestTrue(TEXT("Zero-length wall: PreviewLengthM is 0.0"),
+        FMath::IsNearlyEqual(Session->PreviewLengthM, 0.0f, 0.001f));
+    TestFalse(TEXT("Zero-length wall: bCanConfirm is false"), Session->bCanConfirm);
+
+    // Zero-length: 0.0 cm → cannot confirm
+    Session->UpdateEndpoint(FVector2D(0.0f, 0.0f), FVector2D(0.0f, 0.0f));
+    TestTrue(TEXT("Exact-zero wall: bCanConfirm is false"), Session->bCanConfirm == false);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FProximaWallGeometryTest,
     "Proxima.BuildMode.WallGeometry",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::SmokeFilter)
