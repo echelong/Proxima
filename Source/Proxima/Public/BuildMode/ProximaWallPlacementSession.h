@@ -38,6 +38,10 @@ public:
     UPROPERTY(BlueprintReadOnly, Category="Proxima|Placement")
     bool bCanConfirm = false;
 
+    /** Current wall length in metres (centimetres → metres for display). Updated by UpdateEndpoint. */
+    UPROPERTY(BlueprintReadOnly, Category="Proxima|Placement")
+    float PreviewLengthM = 0.0f;
+
     UPROPERTY(EditDefaultsOnly, Category="Proxima|Placement")
     float DefaultHeightCm = 270.0f;
 

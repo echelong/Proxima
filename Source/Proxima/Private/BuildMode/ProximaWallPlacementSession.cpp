@@ -1,6 +1,7 @@
 #include "BuildMode/ProximaWallPlacementSession.h"
 #include "BuildMode/ProximaWallSnapping.h"
 
+#include "Building/ProximaBuildingManager.h"
 void UProximaWallPlacementSession::BeginPlacement()
 {
     CurrentState = EProximaPlacementState::ChoosingStart;
@@ -27,10 +28,41 @@ void UProximaWallPlacementSession::ConfirmStart(const FVector2D& StartCm)
 
 void UProximaWallPlacementSession::UpdateEndpoint(const FVector2D& CandidateCm, const FVector2D& SnappedCm)
 {
+    // Reject effectively-zero walls.
+    if (FVector2D::Distance(StartPointCm, SnappedCm) < FMath::Max(MinWallLengthCm, 1.0f))
+    {
+        bCanConfirm = false;
+        CurrentEndpointCm = CandidateCm;
+        SnappedEndpointCm = SnappedCm;
+        return;
+    }
+
+    // Reject duplicate walls (same endpoints, same orientation).
+    if (UProximaBuildingManager* Manager = GetWorld() ? Cast<UProximaBuildingManager>(GetWorld()->GetGameInstance()->GetSubsystem<UProximaBuildingManager>()) : nullptr)
+    {
+        for (const FProximaWallData& W : Manager->GetAllWalls())
+        {
+            if (W.IsDegenerate()) continue;
+            const FVector2D WStart = W.StartPoint.ToVector2D();
+            const FVector2D WEnd = W.EndPoint.ToVector2D();
+            const float Tol = 5.0f;
+            // Same wall in either direction (start→end or end→start).
+            bool bMatchesForward = FVector2D::Distance(WStart, SnappedCm) < Tol &&
+                                  FVector2D::Distance(WEnd, StartPointCm) < Tol;
+            bool bMatchesReverse = FVector2D::Distance(WEnd, SnappedCm) < Tol &&
+                                  FVector2D::Distance(WStart, StartPointCm) < Tol;
+            if (bMatchesForward || bMatchesReverse)
+            {
+                bCanConfirm = false;
+                return;
+            }
+        }
+    }
+
     CurrentEndpointCm = CandidateCm;
     SnappedEndpointCm = SnappedCm;
-    bCanConfirm = CurrentState == EProximaPlacementState::Previewing &&
-        FVector2D::Distance(StartPointCm, SnappedEndpointCm) >= FMath::Max(MinWallLengthCm, KINDA_SMALL_NUMBER);
+    PreviewLengthM = FVector2D::Distance(StartPointCm, SnappedCm) / 100.0f;
+    bCanConfirm = CurrentState == EProximaPlacementState::Previewing;
 }
 
 FVector2D UProximaWallPlacementSession::SnapEndpoint(
