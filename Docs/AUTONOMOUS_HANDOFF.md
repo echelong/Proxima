@@ -1,44 +1,102 @@
-# Foundation Review Handoff
+# Build Mode v0.1 — Manual Review Handoff
 
 ## Status
-The autonomous scaffold has received a static architecture/code review, but it still has **not** been compiled with Unreal Engine. Do not describe the foundation as compile-verified until UnrealBuildTool, UnrealHeaderTool, the C++ compiler, and automation tests have actually run.
+The autonomous Build Mode implementation was compile-tested before handoff, but manual source review found several runtime correctness gaps that compilation could not detect. A manual repair pass has now been prepared. **Rebuild and rerun all `Proxima` automation tests before committing.**
 
-## Important repairs made in the review patch
-- Removed invalid/misleading GameMode redirects and nonexistent default map references.
-- Removed an unsupported/suspicious target-rule setting (`bCompileWithAdminCode`).
-- Switched the game module to the primary-game-module macro and declared `LogProxima`.
-- Corrected generated-header/include mistakes and explicit includes.
-- Corrected Unreal coordinate semantics: walls use horizontal XY, Z is elevation, and centimeters are not scaled by `0.01` when converted to world coordinates.
-- Replaced process-local integer IDs with GUID-backed persistent IDs.
-- Removed the unsafe global `UProximaBuildingManager::Get()` world lookup.
-- Reworked building-model APIs to avoid Blueprint-exposed pointers/references to USTRUCT storage.
-- Made build commands report success/failure and made undo/redo history transactional.
-- Replaced redundant Live/Build UObject mode shells with one interaction-mode enum/state.
-- Changed save data from `UDataAsset` to `USaveGame` and reset the first real save format to V1.
-- Added the missing save-version utility implementation and save validation.
-- Changed snapping into a stateless Blueprint function library instead of constructing UObjects on the stack.
-- Added explicit metric parsing for `m`, `cm`, and decimal comma input.
-- Corrected snapping midpoint test expectations.
-- Removed a command test that instantiated an abstract command and did not test undo/redo.
-- Updated docs so they no longer claim compilation or tests succeeded.
+Persistent `FProximaWallData` remains the source of truth. Runtime wall actors and preview actors are representations only.
 
-## Still unverified
-- UnrealHeaderTool compatibility of every reflected signature.
-- Unreal Engine 5.5 C++ compilation on Linux.
-- Runtime subsystem initialization.
-- Automation test execution.
-- Enhanced Input assets and mapping contexts.
-- Runtime wall Actor/mesh reconstruction.
-- Build camera and wall placement tool.
+## Manual Review Findings Corrected
+- Build input was implemented as per-frame `IsInputKeyDown` polling but the polling function was never called. Even if called, held keys would repeatedly toggle modes, create walls, and undo/redo every frame. Input is now bound to key **Pressed** events in `SetupInputComponent`.
+- `SnappedEndpointCm` was never updated, so the preview could remain zero-length while confirmation used a different endpoint. The placement session now tracks raw candidate and snapped endpoint separately.
+- Zero-length walls could be marked confirmable. `MinWallLengthCm` now gates confirmation.
+- Confirm/cancel previously left Build Mode active with the placement session inactive, preventing the next wall. Confirm and cancel now return to `ChoosingStart` while remaining in Build Mode.
+- `SyncRebuildWallActors()` was a no-op, so command Undo/Redo did not update runtime walls. The building model now broadcasts a wall-change delegate, and the player controller rebuilds runtime representations from persistent data on every successful wall mutation.
+- Runtime walls were centered at floor Z rather than half their wall height above the floor, placing half the wall below the build plane. Preview and runtime actors now share one pure wall transform utility.
+- The build-plane helper divided by ray Z before checking for a near-parallel ray and did not perform the promised geometry trace. It now performs a visibility trace first, projects the hit XY to the active build plane, and safely falls back to ray/plane intersection.
+- Endpoint snapping now takes priority over grid snapping so an existing endpoint that is not itself on the current grid remains exact.
+- The duplicate/misleading `ResolveExactLengthEndpoint` helper in wall snapping was removed. `UProximaExactLength` remains the single exact-length API.
+- The autonomous scratch file `Private/BuildPlan.txt` was removed.
+- The generated Android file-server security token was removed from tracked config.
 
-## Highest-value next tasks
-1. Compile the Editor target with the exact installed Unreal Engine version.
-2. Fix all UHT/compiler diagnostics without adding gameplay features.
-3. Run `Proxima.*` automation tests.
-4. Add a GameInstance-backed command undo/redo test.
-5. Only after the foundation is green, implement the wall-placement session and preview Actor.
+## Current Build Mode Architecture
 
-## Manual-review notes
-- `UProximaBuildingManager` is intentionally limited to model state for now. If it starts accumulating Actor spawning, mesh generation, input, save I/O, or catalog behavior, split those responsibilities immediately.
-- Explicit wall connectivity is provisional. Room detection should eventually use a validated planar topology/graph rather than trusting stale neighbor arrays.
-- Catalog UGC should be introduced through a registry/source layer, not by making persistent wall data reference runtime imported objects.
+Input event
+→ `AProximaPlayerController`
+→ controller-owned `UProximaWallPlacementSession`
+→ cursor/build-plane resolution
+→ endpoint/grid snapping
+→ preview actor
+→ `UProximaCreateWallCommand`
+→ `UProximaBuildingManager` persistent wall data
+→ wall-model-changed delegate
+→ deterministic runtime wall reconstruction
+
+Undo/Redo follows the same persistent mutation path, so runtime actors are rebuilt from the resulting model state rather than treated as authoritative.
+
+## Controls
+- **B**: Live ↔ Build Mode
+- **Left Mouse**: set start / confirm current wall
+- **Right Mouse** or **Escape**: cancel current wall and stay ready to place another
+- **Ctrl+Z**: undo last build command while in Build Mode
+- **Ctrl+Y**: redo last build command while in Build Mode
+
+These controls are bound directly in C++ and do not require binary input mapping assets for v0.1.
+
+## Placement Defaults
+- Build plane: Z = 0 cm, configurable on the player controller
+- Grid snap: 10 cm
+- Endpoint tolerance: 15 cm
+- Wall height: 270 cm
+- Wall thickness: 15 cm
+- Minimum confirmable wall length: 1 cm
+
+## Geometry
+`UProximaWallGeometry::MakeWallCubeTransform` is now shared by preview and runtime walls.
+
+For the engine BasicShapes cube (100 × 100 × 100 cm):
+- X scale = wall length / 100
+- Y scale = wall thickness / 100
+- Z scale = wall height / 100
+- location = horizontal midpoint + half wall height on Z
+- yaw = `atan2(DeltaY, DeltaX)`
+
+World positions remain in centimeters. There is no `0.01` conversion applied to `FVector` positions.
+
+## Runtime Synchronization
+`UProximaBuildingManager` owns only persistent wall data. It broadcasts `OnWallsChanged()` after successful add/remove/update/reset operations. `AProximaPlayerController` subscribes during `BeginPlay`, rebuilds runtime wall actors from persistent data, and unsubscribes during `EndPlay`.
+
+The full rebuild is intentionally simple for v0.1. Incremental actor updates can be added after correctness and UX are proven.
+
+## Tests Added / Expanded
+`WallPlacementTest.cpp` now covers:
+- exact-length endpoint resolution
+- negative length clamping
+- grid snapping
+- endpoint snapping
+- endpoint priority over grid
+- placement-session raw vs snapped endpoint state
+- degenerate-wall confirmation rejection
+- 300 × 15 × 270 cm cube transform scaling
+- wall center Z placement
+- X/Y wall yaw
+- existing wall data world-position/rotation math
+
+## Verification Required Before Commit
+Run the UE 5.8.2 Linux editor build and then all tests under `Automation RunTests Proxima`.
+
+Do not claim this repair is complete until both succeed locally.
+
+## Manual Editor Review After Green Build/Tests
+1. B toggles Build Mode exactly once per key press.
+2. Mouse cursor targets the intended build plane.
+3. First click creates a snapped start point.
+4. Preview follows the mouse and has the expected 270 cm height above the floor.
+5. Second click creates a visible wall of the same dimensions as the preview.
+6. Another wall can be started immediately without toggling Build Mode off/on.
+7. Right click/Escape cancels only the in-progress wall.
+8. Ctrl+Z visibly removes the wall and its persistent data.
+9. Ctrl+Y visibly restores the same wall ID/data and representation.
+10. Endpoint snapping feels usable and does not pull to distant corners.
+
+## Deferred Scope
+Still intentionally excluded from v0.1: polished build UI, typed-length widget, rooms, floors, roofs, stairs, openings, curved walls, segment splitting, multiple storeys, furniture, landscaping, multiplayer, vehicles, and external/AI-generated assets.

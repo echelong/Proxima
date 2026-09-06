@@ -15,6 +15,7 @@ bool UProximaBuildingManager::AddWall(const FProximaWallData& Wall)
 
     const int32 NewIndex = Walls.Add(Wall);
     WallIdToIndex.Add(Wall.WallId.Id.Value, NewIndex);
+    BroadcastWallsChanged();
     return true;
 }
 
@@ -28,6 +29,7 @@ bool UProximaBuildingManager::RemoveWall(const FProximaWallID& WallId)
 
     Walls.RemoveAt(*Index);
     RebuildWallIndex();
+    BroadcastWallsChanged();
     return true;
 }
 
@@ -41,6 +43,7 @@ bool UProximaBuildingManager::UpdateWall(const FProximaWallID& WallId, const FPr
     }
 
     Walls[*Index] = NewData;
+    BroadcastWallsChanged();
     return true;
 }
 
@@ -73,6 +76,7 @@ void UProximaBuildingManager::ResetWalls()
 {
     Walls.Reset();
     WallIdToIndex.Reset();
+    BroadcastWallsChanged();
 }
 
 void UProximaBuildingManager::RebuildWallIndex()
@@ -82,4 +86,9 @@ void UProximaBuildingManager::RebuildWallIndex()
     {
         WallIdToIndex.Add(Walls[Index].WallId.Id.Value, Index);
     }
+}
+
+void UProximaBuildingManager::BroadcastWallsChanged()
+{
+    WallsChanged.Broadcast();
 }

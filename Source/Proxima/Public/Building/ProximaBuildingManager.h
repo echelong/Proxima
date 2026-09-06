@@ -5,6 +5,8 @@
 #include "Building/ProximaWallData.h"
 #include "ProximaBuildingManager.generated.h"
 
+DECLARE_MULTICAST_DELEGATE(FProximaWallsChanged);
+
 /**
  * Owns the active in-memory persistent building model.
  * It does not own wall Actors, mesh generation, input, or save-file I/O.
@@ -38,11 +40,16 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Proxima|Building")
     void ResetWalls();
 
+    /** Runtime representation owners subscribe to this without making Actors authoritative. */
+    FProximaWallsChanged& OnWallsChanged() { return WallsChanged; }
+
 private:
     void RebuildWallIndex();
+    void BroadcastWallsChanged();
 
     UPROPERTY(Transient)
     TArray<FProximaWallData> Walls;
 
     TMap<FGuid, int32> WallIdToIndex;
+    FProximaWallsChanged WallsChanged;
 };
