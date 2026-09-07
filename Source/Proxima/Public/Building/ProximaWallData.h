@@ -17,6 +17,11 @@ struct FProximaWallPoint
     float YCm = 0.0f;
 
     FVector2D ToVector2D() const { return FVector2D(XCm, YCm); }
+
+    bool operator==(const FProximaWallPoint& Other) const
+    {
+        return XCm == Other.XCm && YCm == Other.YCm;
+    }
 };
 
 UENUM(BlueprintType)

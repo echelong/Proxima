@@ -7,6 +7,7 @@
 #include "Commands/ProximaWallCommands.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Components/InputComponent.h"
+#include "DrawDebugHelpers.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
@@ -80,9 +81,12 @@ void AProximaPlayerController::SetupInputComponent()
     InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AProximaPlayerController::HandleCancelBuildAction);
     InputComponent->BindKey(EKeys::Z, IE_Pressed, this, &AProximaPlayerController::HandleUndoAction);
     InputComponent->BindKey(EKeys::Y, IE_Pressed, this, &AProximaPlayerController::HandleRedoAction);
+    InputComponent->BindKey(EKeys::Delete, IE_Pressed, this, &AProximaPlayerController::HandleDeleteSelectedWall);
 
-    // Keyboard movement is polled directly in Tick so WASD does not depend on
-    // legacy axis-map loading under EnhancedPlayerInput. Mouse axes remain mapped.
+    // One coherent legacy-input owner: the controller routes the same movement
+    // axes to either the character (Live) or construction camera (Build).
+    InputComponent->BindAxis(TEXT("MoveForward"), this, &AProximaPlayerController::HandleMoveForward);
+    InputComponent->BindAxis(TEXT("MoveRight"), this, &AProximaPlayerController::HandleMoveRight);
     InputComponent->BindAxis(TEXT("Turn"), this, &AProximaPlayerController::HandleTurn);
     InputComponent->BindAxis(TEXT("LookUp"), this, &AProximaPlayerController::HandleLookUp);
     InputComponent->BindAxis(TEXT("BuildZoom"), this, &AProximaPlayerController::HandleBuildZoom);
@@ -102,8 +106,6 @@ void AProximaPlayerController::SetupInputComponent()
 void AProximaPlayerController::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
-
-    HandleKeyboardMovement(DeltaSeconds);
 
     if (!WallSession || !IsBuildModeActive() || WallSession->GetState() != EProximaPlacementState::Previewing)
     {
@@ -125,7 +127,21 @@ void AProximaPlayerController::Tick(float DeltaSeconds)
         CandidateCm,
         ExistingEndpoints,
         EndpointSnapToleranceCm);
-    WallSession->UpdateEndpoint(CandidateCm, SnappedCm);
+
+    bool bDuplicateGeometry = false;
+    if (UGameInstance* GameInstance = GetGameInstance())
+    {
+        if (UProximaBuildingManager* BuildingManager = GameInstance->GetSubsystem<UProximaBuildingManager>())
+        {
+            FProximaWallData CandidateWall;
+            CandidateWall.StartPoint.XCm = WallSession->StartPointCm.X;
+            CandidateWall.StartPoint.YCm = WallSession->StartPointCm.Y;
+            CandidateWall.EndPoint.XCm = SnappedCm.X;
+            CandidateWall.EndPoint.YCm = SnappedCm.Y;
+            bDuplicateGeometry = BuildingManager->HasEquivalentWallGeometry(CandidateWall);
+        }
+    }
+    WallSession->UpdateEndpoint(CandidateCm, SnappedCm, bDuplicateGeometry);
 
     if (!WallPreview)
     {
@@ -147,6 +163,21 @@ void AProximaPlayerController::Tick(float DeltaSeconds)
             WallSession->DefaultHeightCm,
             WallSession->DefaultThicknessCm,
             BuildPlaneZCm);
+
+        const FVector2D MidpointCm = (WallSession->StartPointCm + WallSession->SnappedEndpointCm) * 0.5f;
+        const FVector LabelLocation(
+            MidpointCm.X,
+            MidpointCm.Y,
+            BuildPlaneZCm + WallSession->DefaultHeightCm + 35.0f);
+        DrawDebugString(
+            GetWorld(),
+            LabelLocation,
+            FString::Printf(TEXT("%.2f m"), WallSession->PreviewLengthM),
+            nullptr,
+            FColor::White,
+            0.0f,
+            false,
+            1.0f);
     }
 }
 
@@ -192,9 +223,16 @@ void AProximaPlayerController::BeginWallPlacement()
 
     if (UProximaInteractionSubsystem* Interaction = GameInstance->GetSubsystem<UProximaInteractionSubsystem>())
     {
-        Interaction->SetInteractionMode(EProximaInteractionMode::Build);
+        if (!Interaction->IsBuildModeActive())
+        {
+            if (AProximaCharacter* Char = Cast<AProximaCharacter>(GetPawn()))
+            {
+                Char->StopSprintBP();
+            }
+            Interaction->SetInteractionMode(EProximaInteractionMode::Build);
+            ActivateBuildCamera();
+        }
         WallSession->BeginPlacement();
-        bShowMouseCursor = true;
     }
 }
 
@@ -228,8 +266,10 @@ void AProximaPlayerController::ConfirmWallPlacement()
 
     if (CommandManager->ExecuteCommand(Command))
     {
-        // Stay in Build Mode and immediately become ready for the next wall.
-        WallSession->BeginPlacement();
+        // Sims-like chain building: the confirmed endpoint becomes the next
+        // wall start. RMB/Escape returns to ChoosingStart when the user wants
+        // to break the chain and begin elsewhere.
+        WallSession->ContinueFromCurrentEndpoint();
         DestroyWallPreview();
     }
 }
@@ -299,6 +339,41 @@ void AProximaPlayerController::RebuildAllWallActors(float PropertyOriginX, float
         WallActor->InitializeFromData(Wall, PropertyOriginX, PropertyOriginY);
         RuntimeWalls.Add(Wall.WallId, WallActor);
     }
+
+    // Apply current selection highlight (if any). Selection is transient and
+    // must be cleared when the underlying wall disappears (i.e. post-delete).
+    FProximaWallID SelectedId;
+    bool bHasSelection = false;
+    if (UGameInstance* GI = GetGameInstance())
+    {
+        if (UProximaInteractionSubsystem* Interaction = GI->GetSubsystem<UProximaInteractionSubsystem>())
+        {
+            bHasSelection = Interaction->HasSelectedWall();
+            SelectedId = Interaction->GetSelectedWall();
+        }
+    }
+
+    for (const TPair<FProximaWallID, TObjectPtr<AProximaRuntimeWall>>& Pair : RuntimeWalls)
+    {
+        if (Pair.Value && IsValid(Pair.Value))
+        {
+            const bool bSelected = bHasSelection && (Pair.Key == SelectedId);
+            Pair.Value->SetSelected(bSelected);
+        }
+    }
+
+    if (bHasSelection && !RuntimeWalls.Contains(SelectedId))
+    {
+        // The selected wall is gone (e.g. just deleted). Clear stale selection
+        // so the next click does not act on a phantom GUID.
+        if (UGameInstance* GI = GetGameInstance())
+        {
+            if (UProximaInteractionSubsystem* Interaction = GI->GetSubsystem<UProximaInteractionSubsystem>())
+            {
+                Interaction->ClearSelection();
+            }
+        }
+    }
 }
 
 bool AProximaPlayerController::IsBuildModeActive() const
@@ -354,54 +429,48 @@ void AProximaPlayerController::HandleWallsChanged()
     RebuildAllWallActors();
 }
 
-// Mode-aware Live / Build camera input handlers
-void AProximaPlayerController::HandleKeyboardMovement(float DeltaSeconds)
+// Mode-aware Live / Build input handlers
+void AProximaPlayerController::HandleMoveForward(float Value)
 {
+    if (FMath::IsNearlyZero(Value))
+    {
+        return;
+    }
+
     if (IsBuildModeActive())
     {
-        // Build mode: WASD pans the construction camera (not the character).
-        const float ForwardValue =
-            (IsInputKeyDown(EKeys::W) ? 1.0f : 0.0f) -
-            (IsInputKeyDown(EKeys::S) ? 1.0f : 0.0f);
-        const float RightValue =
-            (IsInputKeyDown(EKeys::D) ? 1.0f : 0.0f) -
-            (IsInputKeyDown(EKeys::A) ? 1.0f : 0.0f);
-
-        if (FMath::IsNearlyZero(ForwardValue) && FMath::IsNearlyZero(RightValue))
+        if (IsValid(BuildCameraActor) && GetWorld())
         {
-            return;
-        }
-
-        if (IsValid(BuildCameraActor))
-        {
-            const FVector2D PanDeltaCm(
-                ForwardValue * BuildCameraPanSpeed * DeltaSeconds,
-                RightValue * BuildCameraPanSpeed * DeltaSeconds);
-            BuildCameraActor->Pan(PanDeltaCm);
+            BuildCameraActor->Pan(FVector2D(Value * BuildCameraPanSpeed * GetWorld()->GetDeltaSeconds(), 0.0f));
         }
         return;
     }
 
-    // Live mode: direct WASD polling drives character movement.
-    // One coherent architecture — no overlapping axis-bindings, no hidden
-    // EnhancedPlayerInput conflicts.
-    const float ForwardValue =
-        (IsInputKeyDown(EKeys::W) ? 1.0f : 0.0f) -
-        (IsInputKeyDown(EKeys::S) ? 1.0f : 0.0f);
-    const float RightValue =
-        (IsInputKeyDown(EKeys::D) ? 1.0f : 0.0f) -
-        (IsInputKeyDown(EKeys::A) ? 1.0f : 0.0f);
+    if (AProximaCharacter* Char = Cast<AProximaCharacter>(GetPawn()))
+    {
+        Char->MoveForward(Value);
+    }
+}
+
+void AProximaPlayerController::HandleMoveRight(float Value)
+{
+    if (FMath::IsNearlyZero(Value))
+    {
+        return;
+    }
+
+    if (IsBuildModeActive())
+    {
+        if (IsValid(BuildCameraActor) && GetWorld())
+        {
+            BuildCameraActor->Pan(FVector2D(0.0f, Value * BuildCameraPanSpeed * GetWorld()->GetDeltaSeconds()));
+        }
+        return;
+    }
 
     if (AProximaCharacter* Char = Cast<AProximaCharacter>(GetPawn()))
     {
-        if (FMath::Abs(ForwardValue) > KINDA_SMALL_NUMBER)
-        {
-            Char->MoveForward(ForwardValue);
-        }
-        if (FMath::Abs(RightValue) > KINDA_SMALL_NUMBER)
-        {
-            Char->MoveRight(RightValue);
-        }
+        Char->MoveRight(Value);
     }
 }
 
@@ -536,6 +605,42 @@ void AProximaPlayerController::HandlePrimaryBuildAction()
 
     if (WallSession->GetState() == EProximaPlacementState::ChoosingStart)
     {
+        // If not actively placing, clicking an existing runtime wall selects it.
+        FVector CursorWorld;
+        if (TryGetBuildCursorPosition(CursorWorld))
+        {
+            float BestDistSq = FLT_MAX;
+            AProximaRuntimeWall* BestWall = nullptr;
+            FProximaWallID BestId;
+            for (const TPair<FProximaWallID, TObjectPtr<AProximaRuntimeWall>>& Pair : RuntimeWalls)
+            {
+                if (Pair.Value && IsValid(Pair.Value))
+                {
+                    const float DistSq = FVector::DistSquared(CursorWorld, Pair.Value->GetActorLocation());
+                    if (DistSq < BestDistSq)
+                    {
+                        BestDistSq = DistSq;
+                        BestWall = Pair.Value;
+                        BestId = Pair.Key;
+                    }
+                }
+            }
+            // 250 cm radius is generous for prototype selection.
+            if (BestWall && BestDistSq <= 62500.0f)
+            {
+                if (UGameInstance* GameInstance = GetGameInstance())
+                {
+                    if (UProximaInteractionSubsystem* Interaction = GameInstance->GetSubsystem<UProximaInteractionSubsystem>())
+                    {
+                        Interaction->SelectWall(BestId);
+                        RebuildAllWallActors();
+                    }
+                }
+                return;
+            }
+        }
+
+        // No existing wall clicked → begin normal placement.
         FVector WorldPosition;
         if (!TryGetBuildCursorPosition(WorldPosition))
         {
@@ -567,6 +672,44 @@ void AProximaPlayerController::HandleCancelBuildAction()
     }
 }
 
+void AProximaPlayerController::HandleDeleteSelectedWall()
+{
+    if (!IsBuildModeActive())
+    {
+        return;
+    }
+
+    UGameInstance* GameInstance = GetGameInstance();
+    if (!GameInstance)
+    {
+        return;
+    }
+
+    UProximaInteractionSubsystem* Interaction = GameInstance->GetSubsystem<UProximaInteractionSubsystem>();
+    if (!Interaction || !Interaction->HasSelectedWall())
+    {
+        return; // nothing to delete; safe no-op
+    }
+
+    UProximaCommandManager* CommandManager = GameInstance->GetSubsystem<UProximaCommandManager>();
+    if (!CommandManager)
+    {
+        return;
+    }
+
+    FProximaWallID SelectedId = Interaction->GetSelectedWall();
+    Interaction->ClearSelection();
+
+    UProximaDeleteWallCommand* Command = NewObject<UProximaDeleteWallCommand>(CommandManager);
+    Command->WallId = SelectedId;
+
+    if (CommandManager->ExecuteCommand(Command))
+    {
+        // Command broadcasts WallsChanged → RebuildAllWallActors handles
+        // actor rebuild and (now-empty) selection highlight correctly.
+    }
+}
+
 void AProximaPlayerController::HandleUndoAction()
 {
     if (!IsBuildModeActive() || !(IsInputKeyDown(EKeys::LeftControl) || IsInputKeyDown(EKeys::RightControl)))
@@ -578,7 +721,16 @@ void AProximaPlayerController::HandleUndoAction()
     {
         if (UProximaCommandManager* CommandManager = GameInstance->GetSubsystem<UProximaCommandManager>())
         {
-            CommandManager->Undo();
+            if (CommandManager->Undo())
+            {
+                // Undo can remove the wall that anchored the active chain. Reset
+                // to a fresh start so the preview never continues from stale geometry.
+                if (WallSession)
+                {
+                    WallSession->BeginPlacement();
+                }
+                DestroyWallPreview();
+            }
         }
     }
 }
@@ -594,7 +746,14 @@ void AProximaPlayerController::HandleRedoAction()
     {
         if (UProximaCommandManager* CommandManager = GameInstance->GetSubsystem<UProximaCommandManager>())
         {
-            CommandManager->Redo();
+            if (CommandManager->Redo())
+            {
+                if (WallSession)
+                {
+                    WallSession->BeginPlacement();
+                }
+                DestroyWallPreview();
+            }
         }
     }
 }
@@ -636,10 +795,22 @@ void AProximaPlayerController::HandleLoadProperty()
         return;
     }
 
-    BuildingManager->ResetWalls();
-    for (const FProximaWallData& Wall : OutData->Walls)
+    // Replace persistent state atomically so runtime listeners rebuild once.
+    // Loading establishes a new authoritative timeline, therefore any undo/redo
+    // commands captured against the pre-load state must be discarded.
+    if (!BuildingManager->ReplaceWalls(OutData->Walls))
     {
-        BuildingManager->AddWall(Wall);
+        return;
     }
-    RebuildAllWallActors();
+
+    if (UProximaCommandManager* CommandManager = GameInstance->GetSubsystem<UProximaCommandManager>())
+    {
+        CommandManager->ClearHistory();
+    }
+
+    if (IsBuildModeActive() && WallSession)
+    {
+        WallSession->BeginPlacement();
+        DestroyWallPreview();
+    }
 }

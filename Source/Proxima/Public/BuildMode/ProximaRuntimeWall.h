@@ -16,6 +16,8 @@ public:
     UFUNCTION(BlueprintPure, Category = "Proxima|Build")
     FProximaWallID GetWallID() const { return WallId; }
 
+    void SetSelected(bool bSelected);
+
     UPROPERTY(VisibleAnywhere, Category = "Proxima|Build")
     FProximaWallID WallId;
 

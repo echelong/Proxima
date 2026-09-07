@@ -76,10 +76,11 @@ private:
     void HandleCancelBuildAction();
     void HandleUndoAction();
     void HandleRedoAction();
+    void HandleDeleteSelectedWall();
 
-    // Mode-aware movement/look input. WASD is polled directly so it works
-    // independently of legacy axis-map loading.
-    void HandleKeyboardMovement(float DeltaSeconds);
+    // One controller-owned legacy-input path routes movement by interaction mode.
+    void HandleMoveForward(float Value);
+    void HandleMoveRight(float Value);
     void HandleTurn(float Value);
     void HandleLookUp(float Value);
     void HandleSprintPressed();

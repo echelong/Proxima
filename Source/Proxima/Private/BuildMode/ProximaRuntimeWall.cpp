@@ -29,6 +29,15 @@ AProximaRuntimeWall::AProximaRuntimeWall()
     }
 }
 
+void AProximaRuntimeWall::SetSelected(bool bSelected)
+{
+    if (Mesh)
+    {
+        Mesh->SetRenderCustomDepth(bSelected);
+        Mesh->SetCustomDepthStencilValue(bSelected ? 1 : 0);
+    }
+}
+
 void AProximaRuntimeWall::InitializeFromData(
     const FProximaWallData& Data,
     float PropertyOriginX,
