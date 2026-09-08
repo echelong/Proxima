@@ -18,4 +18,9 @@ struct PROXIMA_API FProximaWallTopology
         TArray<FProximaWallData>& OutWalls,
         FString* OutError = nullptr,
         float ToleranceCm = 0.1f);
+
+    /** Rebuilds symmetric wall-to-wall links from shared topology endpoints. */
+    static void RebuildConnections(
+        TArray<FProximaWallData>& Walls,
+        float ToleranceCm = 0.1f);
 };

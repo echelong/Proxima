@@ -311,4 +311,218 @@ bool FProximaWallTopologyInsertTest::RunTest(
     return true;
 }
 
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FProximaWallTopologyConnectionsTest,
+    "Proxima.Building.TopologyConnections",
+    EAutomationTestFlags::EditorContext |
+        EAutomationTestFlags::ProductFilter)
+
+bool FProximaWallTopologyConnectionsTest::RunTest(
+    const FString& Parameters)
+{
+    {
+        FProximaWallData Existing =
+            MakeTopologyWall(
+                0.0f,
+                0.0f,
+                600.0f,
+                0.0f);
+
+        FProximaWallData Candidate =
+            MakeTopologyWall(
+                300.0f,
+                -200.0f,
+                300.0f,
+                0.0f);
+
+        TArray<FProximaWallData> Result;
+
+        TestTrue(
+            TEXT("T junction builds connected topology"),
+            FProximaWallTopology::InsertWall(
+                {Existing},
+                Candidate,
+                Result));
+
+        TestEqual(
+            TEXT("T junction has three wall pieces"),
+            Result.Num(),
+            3);
+
+        for (const FProximaWallData& Wall : Result)
+        {
+            TestEqual(
+                TEXT(
+                    "Every T-junction piece connects "
+                    "to the other two pieces"),
+                Wall.ConnectedWalls.Num(),
+                2);
+
+            TestFalse(
+                TEXT("Wall never connects to itself"),
+                Wall.ConnectedWalls.Contains(
+                    Wall.WallId));
+        }
+
+        for (const FProximaWallData& Wall : Result)
+        {
+            for (const FProximaWallID& Connected :
+                 Wall.ConnectedWalls)
+            {
+                const FProximaWallData* Other =
+                    Result.FindByPredicate(
+                        [&Connected](
+                            const FProximaWallData& Item)
+                        {
+                            return
+                                Item.WallId ==
+                                Connected;
+                        });
+
+                TestNotNull(
+                    TEXT(
+                        "Connected wall ID resolves"),
+                    Other);
+
+                if (Other)
+                {
+                    TestTrue(
+                        TEXT(
+                            "Connections are symmetric"),
+                        Other->ConnectedWalls.Contains(
+                            Wall.WallId));
+                }
+            }
+        }
+    }
+
+    {
+        FProximaWallData Existing =
+            MakeTopologyWall(
+                0.0f,
+                0.0f,
+                600.0f,
+                0.0f);
+
+        FProximaWallData Candidate =
+            MakeTopologyWall(
+                300.0f,
+                -200.0f,
+                300.0f,
+                200.0f);
+
+        TArray<FProximaWallData> Result;
+
+        TestTrue(
+            TEXT("Crossing builds connected topology"),
+            FProximaWallTopology::InsertWall(
+                {Existing},
+                Candidate,
+                Result));
+
+        TestEqual(
+            TEXT("Crossing has four pieces"),
+            Result.Num(),
+            4);
+
+        for (const FProximaWallData& Wall : Result)
+        {
+            TestEqual(
+                TEXT(
+                    "Every crossing piece connects "
+                    "to the other three pieces"),
+                Wall.ConnectedWalls.Num(),
+                3);
+        }
+    }
+
+    {
+        TArray<FProximaWallData> Rectangle;
+
+        Rectangle.Add(
+            MakeTopologyWall(
+                0.0f,
+                0.0f,
+                400.0f,
+                0.0f));
+
+        Rectangle.Add(
+            MakeTopologyWall(
+                400.0f,
+                0.0f,
+                400.0f,
+                300.0f));
+
+        Rectangle.Add(
+            MakeTopologyWall(
+                400.0f,
+                300.0f,
+                0.0f,
+                300.0f));
+
+        Rectangle.Add(
+            MakeTopologyWall(
+                0.0f,
+                300.0f,
+                0.0f,
+                0.0f));
+
+        FProximaWallTopology::RebuildConnections(
+            Rectangle);
+
+        for (const FProximaWallData& Wall : Rectangle)
+        {
+            TestEqual(
+                TEXT(
+                    "Rectangle wall connects "
+                    "to two neighbours"),
+                Wall.ConnectedWalls.Num(),
+                2);
+        }
+    }
+
+    {
+        FProximaWallData FloorA =
+            MakeTopologyWall(
+                0.0f,
+                0.0f,
+                300.0f,
+                0.0f);
+
+        FProximaWallData FloorB =
+            MakeTopologyWall(
+                300.0f,
+                0.0f,
+                300.0f,
+                300.0f);
+
+        FloorA.FloorId.Id =
+            FProximaID::NewId();
+
+        FloorB.FloorId.Id =
+            FProximaID::NewId();
+
+        TArray<FProximaWallData> DifferentFloors = {
+            FloorA,
+            FloorB
+        };
+
+        FProximaWallTopology::RebuildConnections(
+            DifferentFloors);
+
+        TestTrue(
+            TEXT(
+                "Walls on different floors "
+                "do not connect"),
+            DifferentFloors[0]
+                    .ConnectedWalls.IsEmpty() &&
+                DifferentFloors[1]
+                    .ConnectedWalls.IsEmpty());
+    }
+
+    return true;
+}
+
+
 #endif

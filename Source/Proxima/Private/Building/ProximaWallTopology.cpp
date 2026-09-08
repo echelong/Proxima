@@ -330,6 +330,77 @@ bool SplitPersistentWall(
 
 }
 
+void FProximaWallTopology::RebuildConnections(
+    TArray<FProximaWallData>& Walls,
+    float ToleranceCm)
+{
+    const double Tolerance =
+        FMath::Max(
+            0.0,
+            static_cast<double>(ToleranceCm));
+
+    for (FProximaWallData& Wall : Walls)
+    {
+        Wall.ConnectedWalls.Reset();
+    }
+
+    for (int32 I = 0; I < Walls.Num(); ++I)
+    {
+        if (!Walls[I].WallId.IsValid())
+        {
+            continue;
+        }
+
+        const Segment A =
+            ToSegment(Walls[I]);
+
+        for (int32 J = I + 1;
+             J < Walls.Num();
+             ++J)
+        {
+            if (!Walls[J].WallId.IsValid() ||
+                !SameTopologyScope(
+                    Walls[I],
+                    Walls[J]))
+            {
+                continue;
+            }
+
+            const Segment B =
+                ToSegment(Walls[J]);
+
+            const bool bShareEndpoint =
+                ProximaGeometry::TopologyNear(
+                    A.Start,
+                    B.Start,
+                    Tolerance) ||
+                ProximaGeometry::TopologyNear(
+                    A.Start,
+                    B.End,
+                    Tolerance) ||
+                ProximaGeometry::TopologyNear(
+                    A.End,
+                    B.Start,
+                    Tolerance) ||
+                ProximaGeometry::TopologyNear(
+                    A.End,
+                    B.End,
+                    Tolerance);
+
+            if (!bShareEndpoint)
+            {
+                continue;
+            }
+
+            Walls[I].ConnectedWalls.Add(
+                Walls[J].WallId);
+
+            Walls[J].ConnectedWalls.Add(
+                Walls[I].WallId);
+        }
+    }
+}
+
 bool FProximaWallTopology::InsertWall(
     const TArray<FProximaWallData>& ExistingWalls,
     const FProximaWallData& Candidate,
@@ -493,6 +564,10 @@ bool FProximaWallTopology::InsertWall(
         OutWalls.Reset();
         return false;
     }
+
+    RebuildConnections(
+        OutWalls,
+        ToleranceCm);
 
     return true;
 }

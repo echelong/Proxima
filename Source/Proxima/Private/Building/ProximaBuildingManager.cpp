@@ -1,5 +1,6 @@
 #include "Building/ProximaBuildingManager.h"
 #include "Building/ProximaGeometryKernel.h"
+#include "Building/ProximaWallTopology.h"
 
 void UProximaBuildingManager::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -28,10 +29,12 @@ bool UProximaBuildingManager::RemoveWall(const FProximaWallID& WallId)
         return false;
     }
 
-    Walls.RemoveAt(*Index);
-    RebuildWallIndex();
-    BroadcastWallsChanged();
-    return true;
+    TArray<FProximaWallData> Candidate = Walls;
+    Candidate.RemoveAt(*Index);
+
+    return ReplaceModel(
+        Candidate,
+        Slabs);
 }
 
 bool UProximaBuildingManager::UpdateWall(const FProximaWallID& WallId, const FProximaWallData& NewData)
@@ -169,11 +172,23 @@ bool UProximaBuildingManager::ValidateModel(
 bool UProximaBuildingManager::ReplaceModel(
     const TArray<FProximaWallData>& NewWalls, const TArray<FProximaSlabData>& NewSlabs)
 {
-    if (!ValidateModel(NewWalls, NewSlabs)) { return false; }
-    Walls = NewWalls;
+    if (!ValidateModel(NewWalls, NewSlabs))
+    {
+        return false;
+    }
+
+    TArray<FProximaWallData> RebuiltWalls =
+        NewWalls;
+
+    FProximaWallTopology::RebuildConnections(
+        RebuiltWalls);
+
+    Walls = MoveTemp(RebuiltWalls);
     Slabs = NewSlabs;
+
     RebuildWallIndex();
     BroadcastWallsChanged();
+
     return true;
 }
 
