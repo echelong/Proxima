@@ -8,6 +8,7 @@
 #include "Building/ProximaBuildingManager.h"
 #include "Building/ProximaGeometryKernel.h"
 #include "Building/ProximaRoomBuilder.h"
+#include "Building/ProximaWallTopology.h"
 #include "Commands/ProximaCommandManager.h"
 #include "Commands/ProximaWallCommands.h"
 #include "Commands/ProximaModelCommand.h"
@@ -286,20 +287,56 @@ void UProximaWorkshopComponent::PrimaryAction()
             return;
         }
         if (!bPreviewValid) { Status = TEXT("Choose a valid endpoint. Duplicate walls are rejected."); return; }
-        UProximaCreateWallCommand* Command = NewObject<UProximaCreateWallCommand>(Commands);
-        FProximaWallData& Wall = Command->WallData;
+        FProximaWallData Wall;
         Wall.WallId.Id = FProximaID::NewId();
-        Wall.StartPoint.XCm = Session->StartPointCm.X; Wall.StartPoint.YCm = Session->StartPointCm.Y;
-        Wall.EndPoint.XCm = Session->SnappedEndpointCm.X; Wall.EndPoint.YCm = Session->SnappedEndpointCm.Y;
-        Wall.HeightCm = HeightCm; Wall.ThicknessCm = ThicknessCm;
+        Wall.StartPoint.XCm = Session->StartPointCm.X;
+        Wall.StartPoint.YCm = Session->StartPointCm.Y;
+        Wall.EndPoint.XCm = Session->SnappedEndpointCm.X;
+        Wall.EndPoint.YCm = Session->SnappedEndpointCm.Y;
+        Wall.HeightCm = HeightCm;
+        Wall.ThicknessCm = ThicknessCm;
         Wall.SideAMaterial.Value = Finish;
-        if (Commands->ExecuteCommand(Command))
+
+        TArray<FProximaWallData> TopologyWalls;
+        FString TopologyError;
+
+        if (!FProximaWallTopology::InsertWall(
+                Model()->GetWallsView(),
+                Wall,
+                TopologyWalls,
+                &TopologyError))
         {
-            Status = FString::Printf(TEXT("Wall built: %.2f m. Continue drawing, or right-click to finish."), Wall.GetLengthCm() / 100.0f);
+            Status = TopologyError.IsEmpty()
+                ? TEXT("Wall topology could not be created. The model is unchanged.")
+                : TopologyError;
+            return;
+        }
+
+        const int32 AddedPieces =
+            TopologyWalls.Num() -
+            Model()->GetWallsView().Num();
+
+        if (CommitModel(
+                TopologyWalls,
+                Model()->GetSlabsView()))
+        {
+            Status = FString::Printf(
+                TEXT(
+                    "Wall built: %.2f m. Topology updated (%d net wall piece%s). "
+                    "Continue drawing, or right-click to finish."),
+                Wall.GetLengthCm() / 100.0f,
+                AddedPieces,
+                AddedPieces == 1 ? TEXT("") : TEXT("s"));
+
             Session->ContinueFromCurrentEndpoint();
             HidePreviews();
         }
-        else { Status = TEXT("Wall could not be created. The model is unchanged."); }
+        else
+        {
+            Status = TEXT(
+                "Wall topology failed model validation. "
+                "The model is unchanged.");
+        }
     }
     else if (Tool == EProximaBuildTool::Door || Tool == EProximaBuildTool::Window)
     {
