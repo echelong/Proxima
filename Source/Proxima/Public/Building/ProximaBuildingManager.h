@@ -73,6 +73,20 @@ public:
     float GetFloorBaseElevation(
         const FProximaFloorID& FloorId) const;
 
+    /**
+     * Produces a complete model containing a copy of one storey on another.
+     *
+     * Destination must be empty.
+     * Walls and openings receive fresh persistent IDs.
+     * Explicit floor surfaces are copied; roofs are intentionally not copied.
+     */
+    bool CreateLevelCopy(
+        int32 SourceLevelIndex,
+        int32 TargetLevelIndex,
+        TArray<FProximaWallData>& OutWalls,
+        TArray<FProximaSlabData>& OutSlabs,
+        FString* OutError = nullptr) const;
+
     UFUNCTION(BlueprintPure, Category = "Proxima|Building")
     TArray<FProximaRoomData> GetAllRooms() const { return Rooms; }
 

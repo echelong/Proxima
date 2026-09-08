@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Building/ProximaIdentifiers.h"
 #include "ProximaSlabData.generated.h"
 
 UENUM(BlueprintType)
@@ -14,6 +15,10 @@ struct FProximaSlabData
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, SaveGame)
     FGuid Id;
+
+    /** Storey that owns this horizontal surface. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, SaveGame)
+    FProximaFloorID FloorId;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, SaveGame)
     FVector2D MinCm = FVector2D::ZeroVector;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, SaveGame)

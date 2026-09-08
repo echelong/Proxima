@@ -114,12 +114,146 @@ bool FProximaSaveLoadRoundTripTest::RunTest(const FString& Parameters)
     Manager->AddWall(WallB);
     TestTrue(TEXT("BuildingManager has 2 walls"), Manager->GetAllWalls().Num() == 2);
 
+    /*
+     * Add one explicit Level-1 floor surface so the copy operation verifies
+     * both persistent wall geometry and horizontal surfaces.
+     */
+    FProximaSlabData GroundSurface;
+
+    GroundSurface.Id =
+        FGuid::NewGuid();
+
+    GroundSurface.FloorId =
+        Level1.FloorId;
+
+    GroundSurface.MinCm =
+        FVector2D(
+            0.0f,
+            0.0f);
+
+    GroundSurface.MaxCm =
+        FVector2D(
+            300.0f,
+            400.0f);
+
+    GroundSurface.ElevationCm =
+        Level1.BaseElevationCm;
+
+    TArray<FProximaSlabData> BaseSurfaces;
+    BaseSurfaces.Add(
+        GroundSurface);
+
+    TestTrue(
+        TEXT("Level 1 explicit floor installs"),
+        Manager->ReplaceModel(
+            Manager->GetWallsView(),
+            BaseSurfaces,
+            Manager->GetFloorsView()));
+
+    TArray<FProximaWallData> LevelCopyWalls;
+    TArray<FProximaSlabData> LevelCopySlabs;
+    FString LevelCopyError;
+
+    TestTrue(
+        TEXT("Level 1 can be copied to empty Level 2"),
+        Manager->CreateLevelCopy(
+            0,
+            1,
+            LevelCopyWalls,
+            LevelCopySlabs,
+            &LevelCopyError));
+
+    TestEqual(
+        TEXT("Level copy duplicates two walls"),
+        LevelCopyWalls.Num(),
+        4);
+
+    TestEqual(
+        TEXT("Level copy duplicates explicit floor surface"),
+        LevelCopySlabs.Num(),
+        2);
+
+    int32 Level2WallCount =
+        0;
+
+    TSet<FGuid> OriginalWallIds;
+
+    for (const FProximaWallData& Existing :
+         Manager->GetWallsView())
+    {
+        OriginalWallIds.Add(
+            Existing.WallId.Id.Value);
+    }
+
+    bool bCopiedWallReusedId =
+        false;
+
+    for (const FProximaWallData& Copied :
+         LevelCopyWalls)
+    {
+        if (!(Copied.FloorId ==
+              Level2.FloorId))
+        {
+            continue;
+        }
+
+        ++Level2WallCount;
+
+        if (OriginalWallIds.Contains(
+                Copied.WallId.Id.Value))
+        {
+            bCopiedWallReusedId =
+                true;
+        }
+    }
+
+    TestEqual(
+        TEXT("Level copy creates walls on Level 2"),
+        Level2WallCount,
+        2);
+
+    TestFalse(
+        TEXT("Copied walls receive fresh GUIDs"),
+        bCopiedWallReusedId);
+
+    bool bFoundLevel2Surface =
+        false;
+
+    for (const FProximaSlabData& Copied :
+         LevelCopySlabs)
+    {
+        if (Copied.FloorId ==
+                Level2.FloorId &&
+            Copied.Kind ==
+                EProximaSlabKind::Floor &&
+            FMath::IsNearlyEqual(
+                Copied.ElevationCm,
+                270.0f,
+                0.1f))
+        {
+            bFoundLevel2Surface =
+                true;
+            break;
+        }
+    }
+
+    TestTrue(
+        TEXT("Copied floor surface rises to Level 2"),
+        bFoundLevel2Surface);
+
     UProximaSaveSystem* SaveSystem = NewObject<UProximaSaveSystem>(TestGameInstance.Get());
     UProximaSaveData* SaveData = NewObject<UProximaSaveData>();
     SaveData->Walls = Manager->GetAllWalls();
+    SaveData->Slabs = Manager->GetSlabsView();
     SaveData->Floors = Manager->GetFloorsView();
 
     TestTrue(TEXT("SaveData holds 2 walls"), SaveData->Walls.Num() == 2);
+
+    TestEqual(
+        TEXT("SaveData holds one explicit floor surface"),
+        SaveData->Slabs.Num(),
+        1);
+
     TestEqual(
         TEXT("SaveData holds three storeys"),
         SaveData->Floors.Num(),
@@ -150,6 +284,11 @@ bool FProximaSaveLoadRoundTripTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("Loaded save uses current save format"),
         LoadedData->Header.Version, UProximaSerializationUtility::GetSaveFormatVersion());
     TestTrue(TEXT("Loaded save has 2 walls"), LoadedData->Walls.Num() == 2);
+
+    TestEqual(
+        TEXT("Loaded save preserves explicit floor surface"),
+        LoadedData->Slabs.Num(),
+        1);
 
     TestEqual(
         TEXT("Loaded save preserves three storeys"),

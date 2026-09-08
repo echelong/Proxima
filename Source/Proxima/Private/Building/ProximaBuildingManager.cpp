@@ -111,6 +111,56 @@ const FProximaFloorData* FindGroundFloor(
     return Best;
 }
 
+const FProximaFloorData* ResolveFloorForSlab(
+    const TArray<FProximaFloorData>& Floors,
+    const FProximaSlabData& Slab)
+{
+    const FProximaFloorData* Best =
+        nullptr;
+
+    double BestScore =
+        TNumericLimits<double>::Max();
+
+    for (const FProximaFloorData& Floor :
+         Floors)
+    {
+        /*
+         * Old saves have no slab FloorId.
+         *
+         * Floor surfaces should match BaseElevation.
+         * Old flat roofs were generated at
+         * BaseElevation + StoreyHeight + 20cm.
+         */
+        const double ExpectedElevation =
+            Slab.Kind ==
+                    EProximaSlabKind::FlatRoof
+                ? static_cast<double>(
+                    Floor.BaseElevationCm +
+                    Floor.StoreyHeightCm +
+                    20.0f)
+                : static_cast<double>(
+                    Floor.BaseElevationCm);
+
+        const double Score =
+            FMath::Abs(
+                static_cast<double>(
+                    Slab.ElevationCm) -
+                ExpectedElevation);
+
+        if (!Best ||
+            Score < BestScore)
+        {
+            Best =
+                &Floor;
+
+            BestScore =
+                Score;
+        }
+    }
+
+    return Best;
+}
+
 bool ContainsFloorId(
     const TArray<FProximaFloorData>& Floors,
     const FProximaFloorID& FloorId)
@@ -289,6 +339,214 @@ float UProximaBuildingManager::GetFloorBaseElevation(
     return 0.0f;
 }
 
+bool UProximaBuildingManager::CreateLevelCopy(
+    int32 SourceLevelIndex,
+    int32 TargetLevelIndex,
+    TArray<FProximaWallData>& OutWalls,
+    TArray<FProximaSlabData>& OutSlabs,
+    FString* OutError) const
+{
+    OutWalls.Reset();
+    OutSlabs.Reset();
+
+    if (OutError)
+    {
+        OutError->Reset();
+    }
+
+    FProximaFloorData SourceFloor;
+    FProximaFloorData TargetFloor;
+
+    if (!TryGetFloorByLevelIndex(
+            SourceLevelIndex,
+            SourceFloor) ||
+        !TryGetFloorByLevelIndex(
+            TargetLevelIndex,
+            TargetFloor))
+    {
+        if (OutError)
+        {
+            *OutError =
+                TEXT(
+                    "Source or destination level is unavailable.");
+        }
+
+        return false;
+    }
+
+    if (TargetLevelIndex !=
+        SourceLevelIndex + 1)
+    {
+        if (OutError)
+        {
+            *OutError =
+                TEXT(
+                    "Copy Level Up requires the next storey.");
+        }
+
+        return false;
+    }
+
+    /*
+     * Destination copy is deliberately conservative for now.
+     * Mixing a whole-floor copy with existing target geometry should be an
+     * explicit merge workflow later, not a surprise.
+     */
+    for (const FProximaWallData& Wall :
+         Walls)
+    {
+        if (Wall.FloorId ==
+            TargetFloor.FloorId)
+        {
+            if (OutError)
+            {
+                *OutError =
+                    FString::Printf(
+                        TEXT(
+                            "Level %d already contains walls."),
+                        TargetLevelIndex + 1);
+            }
+
+            return false;
+        }
+    }
+
+    for (const FProximaSlabData& Slab :
+         Slabs)
+    {
+        if (Slab.FloorId ==
+            TargetFloor.FloorId)
+        {
+            if (OutError)
+            {
+                *OutError =
+                    FString::Printf(
+                        TEXT(
+                            "Level %d already contains surfaces."),
+                        TargetLevelIndex + 1);
+            }
+
+            return false;
+        }
+    }
+
+    OutWalls =
+        Walls;
+
+    OutSlabs =
+        Slabs;
+
+    int32 CopiedWalls =
+        0;
+
+    int32 CopiedFloors =
+        0;
+
+    for (const FProximaWallData& SourceWall :
+         Walls)
+    {
+        if (!(SourceWall.FloorId ==
+              SourceFloor.FloorId))
+        {
+            continue;
+        }
+
+        FProximaWallData Copy =
+            SourceWall;
+
+        Copy.WallId.Id =
+            FProximaID::NewId();
+
+        Copy.FloorId =
+            TargetFloor.FloorId;
+
+        Copy.ConnectedWalls.Reset();
+
+        /*
+         * Openings are persistent children and therefore also need fresh IDs.
+         */
+        for (FProximaOpeningData& Opening :
+             Copy.Openings)
+        {
+            Opening.OpeningId.Id =
+                FProximaID::NewId();
+        }
+
+        OutWalls.Add(
+            MoveTemp(Copy));
+
+        ++CopiedWalls;
+    }
+
+    const float ElevationDeltaCm =
+        TargetFloor.BaseElevationCm -
+        SourceFloor.BaseElevationCm;
+
+    for (const FProximaSlabData& SourceSlab :
+         Slabs)
+    {
+        if (!(SourceSlab.FloorId ==
+              SourceFloor.FloorId) ||
+            SourceSlab.Kind !=
+                EProximaSlabKind::Floor)
+        {
+            continue;
+        }
+
+        FProximaSlabData Copy =
+            SourceSlab;
+
+        Copy.Id =
+            FGuid::NewGuid();
+
+        Copy.FloorId =
+            TargetFloor.FloorId;
+
+        Copy.ElevationCm +=
+            ElevationDeltaCm;
+
+        OutSlabs.Add(
+            MoveTemp(Copy));
+
+        ++CopiedFloors;
+    }
+
+    if (CopiedWalls == 0 &&
+        CopiedFloors == 0)
+    {
+        if (OutError)
+        {
+            *OutError =
+                TEXT(
+                    "The current level is empty.");
+        }
+
+        OutWalls.Reset();
+        OutSlabs.Reset();
+
+        return false;
+    }
+
+    if (!ValidateModel(
+            OutWalls,
+            OutSlabs))
+    {
+        if (OutError)
+        {
+            *OutError =
+                TEXT(
+                    "The copied level conflicts with existing geometry.");
+        }
+
+        OutWalls.Reset();
+        OutSlabs.Reset();
+
+        return false;
+    }
+
+    return true;
+}
+
 void UProximaBuildingManager::ResetWalls()
 {
     Walls.Reset();
@@ -413,6 +671,37 @@ bool UProximaBuildingManager::ReplaceModel(
         }
     }
 
+    TArray<FProximaSlabData> RebuiltSlabs =
+        NewSlabs;
+
+    /*
+     * Slab FloorId was introduced after the first multi-storey slice.
+     * Infer the owning storey for legacy floor/roof surfaces.
+     */
+    for (FProximaSlabData& Slab :
+         RebuiltSlabs)
+    {
+        if (ContainsFloorId(
+                EffectiveFloors,
+                Slab.FloorId))
+        {
+            continue;
+        }
+
+        const FProximaFloorData* ResolvedFloor =
+            ResolveFloorForSlab(
+                EffectiveFloors,
+                Slab);
+
+        if (!ResolvedFloor)
+        {
+            return false;
+        }
+
+        Slab.FloorId =
+            ResolvedFloor->FloorId;
+    }
+
     FProximaWallTopology::RebuildConnections(
         RebuiltWalls);
 
@@ -430,7 +719,8 @@ bool UProximaBuildingManager::ReplaceModel(
             RebuiltWalls);
 
     Slabs =
-        NewSlabs;
+        MoveTemp(
+            RebuiltSlabs);
 
     Rooms =
         MoveTemp(

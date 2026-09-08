@@ -126,6 +126,118 @@ void UProximaWorkshopComponent::SetActiveLevel(
                 100.0f);
 }
 
+void UProximaWorkshopComponent::CopyActiveLevelUp()
+{
+    if (!bActive ||
+        !Model())
+    {
+        return;
+    }
+
+    const int32 TargetLevelIndex =
+        ActiveLevelIndex + 1;
+
+    FProximaFloorData TargetFloor;
+
+    if (!Model()->TryGetFloorByLevelIndex(
+            TargetLevelIndex,
+            TargetFloor))
+    {
+        Status =
+            TEXT(
+                "There is no higher level available.");
+
+        return;
+    }
+
+    TArray<FProximaWallData> CopiedWalls;
+    TArray<FProximaSlabData> CopiedSlabs;
+    FString CopyError;
+
+    if (!Model()->CreateLevelCopy(
+            ActiveLevelIndex,
+            TargetLevelIndex,
+            CopiedWalls,
+            CopiedSlabs,
+            &CopyError))
+    {
+        Status =
+            CopyError.IsEmpty()
+                ? TEXT(
+                    "Level could not be copied.")
+                : CopyError;
+
+        return;
+    }
+
+    const int32 OldWallCount =
+        Model()->GetWallsView().Num();
+
+    const int32 OldSlabCount =
+        Model()->GetSlabsView().Num();
+
+    if (!CommitModel(
+            CopiedWalls,
+            CopiedSlabs))
+    {
+        Status =
+            TEXT(
+                "Copied level failed model validation. "
+                "No changes were made.");
+
+        return;
+    }
+
+    const int32 AddedWalls =
+        CopiedWalls.Num() -
+        OldWallCount;
+
+    const int32 AddedSurfaces =
+        CopiedSlabs.Num() -
+        OldSlabCount;
+
+    ActiveLevelIndex =
+        TargetLevelIndex;
+
+    Cancel();
+    SyncModel();
+
+    Status =
+        FString::Printf(
+            TEXT(
+                "Copied Level %d to Level %d: "
+                "%d wall%s + %d floor surface%s. "
+                "Ctrl+Z undoes the whole copy."),
+            TargetLevelIndex,
+            TargetLevelIndex + 1,
+            AddedWalls,
+            AddedWalls == 1
+                ? TEXT("")
+                : TEXT("s"),
+            AddedSurfaces,
+            AddedSurfaces == 1
+                ? TEXT("")
+                : TEXT("s"));
+}
+
+void UProximaWorkshopComponent::ToggleAllLevelsVisibility()
+{
+    bShowAllLevels =
+        !bShowAllLevels;
+
+    RefreshLevelVisibility();
+
+    Status =
+        bShowAllLevels
+            ? TEXT(
+                "Showing all storeys. "
+                "Editing and snapping remain on the active level.")
+            : FString::Printf(
+                TEXT(
+                    "Showing only Level %d."),
+                ActiveLevelIndex + 1);
+}
+
 FString UProximaWorkshopComponent::GetActiveLevelLabel() const
 {
     return FString::Printf(
@@ -172,6 +284,18 @@ bool UProximaWorkshopComponent::IsWallOnActiveFloor(
     return
         ActiveFloor.IsValid() &&
         Wall.FloorId ==
+            ActiveFloor;
+}
+
+bool UProximaWorkshopComponent::IsSlabOnActiveFloor(
+    const FProximaSlabData& Slab) const
+{
+    const FProximaFloorID ActiveFloor =
+        GetActiveFloorId();
+
+    return
+        ActiveFloor.IsValid() &&
+        Slab.FloorId ==
             ActiveFloor;
 }
 
@@ -293,8 +417,20 @@ bool UProximaWorkshopComponent::FindResumableEndpoint(
     bool bFound =
         false;
 
+    TArray<FProximaWallData> ActiveWalls;
+
     for (const FProximaWallData& Wall :
          Model()->GetWallsView())
+    {
+        if (IsWallOnActiveFloor(Wall))
+        {
+            ActiveWalls.Add(
+                Wall);
+        }
+    }
+
+    for (const FProximaWallData& Wall :
+         ActiveWalls)
     {
         if (!IsWallOnActiveFloor(Wall))
         {
@@ -325,7 +461,7 @@ bool UProximaWorkshopComponent::FindResumableEndpoint(
 
             if (!FProximaWallTopology::
                     BuildOpenChainEndingAt(
-                        Model()->GetWallsView(),
+                        ActiveWalls,
                         Endpoint,
                         CandidateChain,
                         0.1f))
@@ -484,9 +620,23 @@ void UProximaWorkshopComponent::UpdatePreview()
 
                 TArray<FVector2D> Chain;
 
+                TArray<FProximaWallData>
+                    ActiveFloorWalls;
+
+                for (const FProximaWallData& CandidateWall :
+                     Model()->GetWallsView())
+                {
+                    if (IsWallOnActiveFloor(
+                            CandidateWall))
+                    {
+                        ActiveFloorWalls.Add(
+                            CandidateWall);
+                    }
+                }
+
                 if (!FProximaWallTopology::
                         BuildOpenChainEndingAt(
-                            Model()->GetWallsView(),
+                            ActiveFloorWalls,
                             Endpoint,
                             Chain,
                             0.1f))
@@ -1132,10 +1282,18 @@ void UProximaWorkshopComponent::CompleteRectangleShortcut()
                 );
         };
 
+    ThirdWall.FloorId =
+        GetActiveFloorId();
+
+    ClosingWall.FloorId =
+        GetActiveFloorId();
+
     for (const FProximaWallData& Existing :
          Model()->GetWallsView())
     {
-        if (!MatchesSegment(
+        if (!IsWallOnActiveFloor(
+                Existing) ||
+            !MatchesSegment(
                 Existing,
                 B,
                 C))
@@ -1487,6 +1645,9 @@ void UProximaWorkshopComponent::CommitRectangle()
         for (FProximaSlabData& Slab :
              RoomSlabs)
         {
+            Slab.FloorId =
+                ActiveFloor;
+
             Slab.ElevationCm +=
                 BaseElevationCm;
         }
@@ -1497,7 +1658,11 @@ void UProximaWorkshopComponent::CommitRectangle()
     else
     {
         FProximaSlabData Slab;
-        Slab.Id = FGuid::NewGuid(); Slab.MinCm = Min; Slab.MaxCm = Max;
+        Slab.Id = FGuid::NewGuid();
+        Slab.FloorId = GetActiveFloorId();
+        Slab.MinCm = Min;
+        Slab.MaxCm = Max;
+
         const float BaseElevationCm =
             GetActiveFloorElevationCm();
 
@@ -1538,7 +1703,25 @@ void UProximaWorkshopComponent::SelectAtCursor()
         FHitResult Hit;
         if (Controller()->GetHitResultUnderCursor(ECC_Visibility, true, Hit))
         {
-            if (const AProximaRuntimeSlab* Slab = Cast<AProximaRuntimeSlab>(Hit.GetActor())) { SelectedSlab = Slab->GetSlabID(); }
+            if (const AProximaRuntimeSlab* SlabActor =
+                    Cast<AProximaRuntimeSlab>(
+                        Hit.GetActor()))
+            {
+                for (const FProximaSlabData& Slab :
+                     Model()->GetSlabsView())
+                {
+                    if (Slab.Id ==
+                            SlabActor->GetSlabID() &&
+                        IsSlabOnActiveFloor(
+                            Slab))
+                    {
+                        SelectedSlab =
+                            Slab.Id;
+
+                        break;
+                    }
+                }
+            }
         }
     }
     RefreshSelection();
@@ -1661,6 +1844,12 @@ void UProximaWorkshopComponent::SyncModel()
                     Wall.FloorId));
             for (const FProximaWallData& Other : Model()->GetWallsView())
             {
+                if (!(Wall.FloorId ==
+                      Other.FloorId))
+                {
+                    continue;
+                }
+
                 // A stable GUID ordering gives each shared corner one owner.
                 const FGuid& A = Wall.WallId.Id.Value;
                 const FGuid& B = Other.WallId.Id.Value;
@@ -1755,19 +1944,155 @@ void UProximaWorkshopComponent::RefreshSelection()
     for (auto& Pair : Walls) { if (IsValid(Pair.Value)) { Pair.Value->SetSelected(bActive && Pair.Key == SelectedWall); } }
     for (auto& Pair : Slabs) { if (IsValid(Pair.Value)) { Pair.Value->SetSelected(bActive && Pair.Key == SelectedSlab); } }
 }
-void UProximaWorkshopComponent::RefreshRoofs()
+void UProximaWorkshopComponent::RefreshLevelVisibility()
 {
-    for (auto& Pair : Slabs)
+    if (!Model())
     {
-        if (IsValid(Pair.Value) && Pair.Value->IsRoof())
+        return;
+    }
+
+    const FProximaFloorID ActiveFloor =
+        GetActiveFloorId();
+
+    /*
+     * Walk mode always shows the complete building.
+     * Build mode defaults to the active storey only.
+     */
+    for (auto& Pair :
+         Walls)
+    {
+        if (!IsValid(Pair.Value))
         {
-            const bool bVisible = !bActive || bShowRoofs;
-            Pair.Value->SetActorHiddenInGame(!bVisible);
-            Pair.Value->SetActorEnableCollision(bVisible);
+            continue;
         }
+
+        FProximaWallData Wall;
+
+        const bool bKnown =
+            Model()->TryGetWall(
+                Pair.Key,
+                Wall);
+
+        const bool bVisible =
+            !bActive ||
+            bShowAllLevels ||
+            (
+                bKnown &&
+                Wall.FloorId ==
+                    ActiveFloor
+            );
+
+        Pair.Value->SetActorHiddenInGame(
+            !bVisible);
+
+        Pair.Value->SetActorEnableCollision(
+            bVisible);
+    }
+
+    for (auto& Pair :
+         Slabs)
+    {
+        if (!IsValid(Pair.Value))
+        {
+            continue;
+        }
+
+        const FProximaSlabData* Data =
+            nullptr;
+
+        for (const FProximaSlabData& Slab :
+             Model()->GetSlabsView())
+        {
+            if (Slab.Id ==
+                Pair.Key)
+            {
+                Data =
+                    &Slab;
+
+                break;
+            }
+        }
+
+        bool bVisible =
+            !bActive ||
+            bShowAllLevels ||
+            (
+                Data &&
+                Data->FloorId ==
+                    ActiveFloor
+            );
+
+        /*
+         * Roof visibility remains an additional Build Mode filter.
+         */
+        if (bActive &&
+            Pair.Value->IsRoof() &&
+            !bShowRoofs)
+        {
+            bVisible =
+                false;
+        }
+
+        Pair.Value->SetActorHiddenInGame(
+            !bVisible);
+
+        Pair.Value->SetActorEnableCollision(
+            bVisible);
+    }
+
+    for (auto& Pair :
+         RoomFloors)
+    {
+        if (!IsValid(Pair.Value))
+        {
+            continue;
+        }
+
+        const FProximaRoomData* Data =
+            nullptr;
+
+        for (const FProximaRoomData& Room :
+             Model()->GetRoomsView())
+        {
+            if (Room.RoomId ==
+                Pair.Key)
+            {
+                Data =
+                    &Room;
+
+                break;
+            }
+        }
+
+        const bool bVisible =
+            !bActive ||
+            bShowAllLevels ||
+            (
+                Data &&
+                Data->FloorId ==
+                    ActiveFloor
+            );
+
+        Pair.Value->SetActorHiddenInGame(
+            !bVisible);
+
+        Pair.Value->SetActorEnableCollision(
+            bVisible);
     }
 }
-void UProximaWorkshopComponent::ToggleRoofs() { bShowRoofs = !bShowRoofs; RefreshRoofs(); }
+
+void UProximaWorkshopComponent::RefreshRoofs()
+{
+    RefreshLevelVisibility();
+}
+
+void UProximaWorkshopComponent::ToggleRoofs()
+{
+    bShowRoofs =
+        !bShowRoofs;
+
+    RefreshLevelVisibility();
+}
 void UProximaWorkshopComponent::CycleGrid()
 {
     const float Values[] = {0.0f, 1.0f, 5.0f, 10.0f, 25.0f, 50.0f, 100.0f};

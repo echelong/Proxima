@@ -51,9 +51,20 @@ public:
     /** 0 = Level 1, 1 = Level 2, 2 = Level 3. */
     void SetActiveLevel(int32 LevelIndex);
 
+    /** Copies the active storey onto the next empty storey in one undo step. */
+    void CopyActiveLevelUp();
+
+    /** Build-mode visibility only. Editing always remains scoped to active level. */
+    void ToggleAllLevelsVisibility();
+
     int32 GetActiveLevelIndex() const
     {
         return ActiveLevelIndex;
+    }
+
+    bool IsShowingAllLevels() const
+    {
+        return bShowAllLevels;
     }
 
     FString GetActiveLevelLabel() const;
@@ -82,18 +93,23 @@ public:
     bool bAngleLock = true;
     bool bShowRoofs = false;
 
+    /** False = only active storey while building. Walk mode always shows all. */
+    bool bShowAllLevels = false;
+
 private:
     AProximaPlayerController* Controller() const;
     UProximaBuildingManager* Model() const;
     void SyncModel();
     void RefreshSelection();
     void RefreshRoofs();
+    void RefreshLevelVisibility();
     void HidePreviews();
     void ShowPreview(int32 Index, const FVector2D& Start, const FVector2D& End,
         float Height, float Thickness, float Elevation, bool bValid);
     bool CursorOnPlane(FVector2D& Out) const;
     bool FindWallAtCursor(FProximaWallData& OutWall, float& Along) const;
     bool IsWallOnActiveFloor(const FProximaWallData& Wall) const;
+    bool IsSlabOnActiveFloor(const FProximaSlabData& Slab) const;
     bool MakeOpening(FProximaWallData& Wall, FProximaOpeningData& Opening) const;
     FVector2D Snap(
         const FVector2D& Point,

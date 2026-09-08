@@ -160,6 +160,32 @@ void SProximaWorkshopPanel::Construct(const FArguments& Args)
                                 })
                                 [Caption(TEXT("LEVEL 3"))]]]
                         + SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 4)
+                        [Action(
+                            TEXT("Copy current level up"),
+                            [](auto& W)
+                            {
+                                W.CopyActiveLevelUp();
+                            })]
+                        + SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 10)
+                        [SNew(SCheckBox)
+                            .IsChecked_Lambda([Weak]()
+                            {
+                                return Weak.IsValid() &&
+                                       Weak->IsShowingAllLevels()
+                                    ? ECheckBoxState::Checked
+                                    : ECheckBoxState::Unchecked;
+                            })
+                            .OnCheckStateChanged_Lambda(
+                                [Weak](ECheckBoxState)
+                                {
+                                    if (Weak.IsValid())
+                                    {
+                                        Weak->ToggleAllLevelsVisibility();
+                                    }
+                                })
+                            [Caption(TEXT(
+                                "Show all levels while building"))]]
+                        + SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 4)
                         [SNew(SHorizontalBox)
                             + SHorizontalBox::Slot().FillWidth(1).Padding(0, 0, 3, 0)[ToolButton(EProximaBuildTool::Select, TEXT("1  Select"))]
                             + SHorizontalBox::Slot().FillWidth(1)[ToolButton(EProximaBuildTool::Wall, TEXT("2  Wall"))]]
