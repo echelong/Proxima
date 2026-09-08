@@ -1,4 +1,5 @@
 #include "Building/ProximaGeometryKernel.h"
+#include "Building/ProximaTopologyKernel.h"
 #include <iostream>
 #include <limits>
 #include <random>
@@ -92,6 +93,56 @@ int main()
         Check(Near(Corner.Left, 600) && Near(Corner.Right, 615) && Near(Area(Corner), 150), "mixed-thickness corner dimensions incorrect");
         Check(!CornerPatch({0, 0}, {600, 0}, 20, {100, 0}, {100, 400}, 20, Corner), "T junction mistaken for an endpoint corner");
         Check(!CornerPatch({0, 0}, {600, 0}, 20, {600, 0}, {800, 200}, 20, Corner), "non-perpendicular join received a square patch");
+
+        Point Intersection;
+
+        Check(
+            SegmentIntersection(
+                {{0, 0}, {10, 10}},
+                {{0, 10}, {10, 0}},
+                Intersection),
+            "crossing wall intersection not detected");
+
+        Check(
+            TopologyNear(Intersection, {5, 5}),
+            "crossing intersection position incorrect");
+
+        Check(
+            SegmentIntersection(
+                {{0, 0}, {10, 0}},
+                {{5, 0}, {5, 10}},
+                Intersection),
+            "T junction not detected");
+
+        Check(
+            TopologyNear(Intersection, {5, 0}),
+            "T junction position incorrect");
+
+        Check(
+            SegmentIntersection(
+                {{0, 0}, {10, 0}},
+                {{10, 0}, {10, 10}},
+                Intersection),
+            "endpoint join not detected");
+
+        Check(
+            TopologyNear(Intersection, {10, 0}),
+            "endpoint join position incorrect");
+
+        Check(
+            !SegmentIntersection(
+                {{0, 0}, {10, 0}},
+                {{0, 5}, {10, 5}},
+                Intersection),
+            "parallel separated walls intersected");
+
+        Check(
+            !SegmentIntersection(
+                {{0, 0}, {10, 0}},
+                {{5, 0}, {15, 0}},
+                Intersection),
+            "collinear overlap became one intersection");
+
         std::mt19937 Random(73521);
         for (int Trial = 0; Trial < 1000; ++Trial)
         {
