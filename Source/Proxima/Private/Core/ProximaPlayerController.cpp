@@ -1,382 +1,195 @@
 #include "Core/ProximaPlayerController.h"
-
-#include "BuildMode/ProximaBuildPlaneTrace.h"
-#include "Building/ProximaBuildingManager.h"
-#include "Commands/ProximaCommandManager.h"
-#include "Commands/ProximaWallCommands.h"
+#include "Core/ProximaCharacter.h"
+#include "BuildMode/ProximaBuildCamera.h"
+#include "BuildMode/ProximaWorkshopComponent.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Components/InputComponent.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "InputCoreTypes.h"
 #include "Interaction/ProximaInteractionSubsystem.h"
 
 AProximaPlayerController::AProximaPlayerController()
 {
     PrimaryActorTick.bCanEverTick = true;
-    WallSession = CreateDefaultSubobject<UProximaWallPlacementSession>(TEXT("WallSession"));
+    Workshop = CreateDefaultSubobject<UProximaWorkshopComponent>(TEXT("Workshop"));
 }
-
 void AProximaPlayerController::BeginPlay()
 {
     Super::BeginPlay();
-
-    if (UGameInstance* GameInstance = GetGameInstance())
+    if (PlayerCameraManager)
     {
-        if (UProximaBuildingManager* BuildingManager = GameInstance->GetSubsystem<UProximaBuildingManager>())
-        {
-            BuildingManager->OnWallsChanged().AddUObject(this, &AProximaPlayerController::HandleWallsChanged);
-        }
+        PlayerCameraManager->ViewPitchMin = -70.0f;
+        PlayerCameraManager->ViewPitchMax = 70.0f;
     }
-
-    RebuildAllWallActors();
+    SetInputMode(FInputModeGameOnly());
 }
-
-void AProximaPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
+void AProximaPlayerController::EndPlay(const EEndPlayReason::Type Reason)
 {
-    if (UGameInstance* GameInstance = GetGameInstance())
-    {
-        if (UProximaBuildingManager* BuildingManager = GameInstance->GetSubsystem<UProximaBuildingManager>())
-        {
-            BuildingManager->OnWallsChanged().RemoveAll(this);
-        }
-    }
-
-    DestroyWallPreview();
-    Super::EndPlay(EndPlayReason);
+    if (IsValid(BuildCameraActor)) { BuildCameraActor->Destroy(); }
+    Super::EndPlay(Reason);
 }
-
 void AProximaPlayerController::SetupInputComponent()
 {
     Super::SetupInputComponent();
-    if (!InputComponent)
-    {
-        return;
-    }
-
-    // Press events avoid the repeated toggles/undo actions caused by per-frame key polling.
+    if (!InputComponent) { return; }
+    InputComponent->BindAxis(TEXT("MoveForward"), this, &AProximaPlayerController::HandleMoveForward);
+    InputComponent->BindAxis(TEXT("MoveRight"), this, &AProximaPlayerController::HandleMoveRight);
+    InputComponent->BindAxis(TEXT("Turn"), this, &AProximaPlayerController::HandleTurn);
+    InputComponent->BindAxis(TEXT("LookUp"), this, &AProximaPlayerController::HandleLookUp);
+    InputComponent->BindAxis(TEXT("BuildZoom"), this, &AProximaPlayerController::HandleBuildZoom);
     InputComponent->BindKey(EKeys::B, IE_Pressed, this, &AProximaPlayerController::ToggleBuildMode);
-    InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AProximaPlayerController::HandlePrimaryBuildAction);
-    InputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AProximaPlayerController::HandleCancelBuildAction);
-    InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AProximaPlayerController::HandleCancelBuildAction);
-    InputComponent->BindKey(EKeys::Z, IE_Pressed, this, &AProximaPlayerController::HandleUndoAction);
-    InputComponent->BindKey(EKeys::Y, IE_Pressed, this, &AProximaPlayerController::HandleRedoAction);
+    InputComponent->BindKey(EKeys::V, IE_Pressed, this, &AProximaPlayerController::HandleInspection);
+    InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AProximaPlayerController::HandlePrimary);
+    InputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AProximaPlayerController::HandleCancel);
+    InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AProximaPlayerController::HandleCancel);
+    InputComponent->BindKey(EKeys::Z, IE_Pressed, this, &AProximaPlayerController::HandleUndo);
+    InputComponent->BindKey(EKeys::Y, IE_Pressed, this, &AProximaPlayerController::HandleRedo);
+    InputComponent->BindKey(EKeys::Delete, IE_Pressed, this, &AProximaPlayerController::HandleDelete);
+    InputComponent->BindKey(EKeys::F5, IE_Pressed, this, &AProximaPlayerController::HandleSave);
+    InputComponent->BindKey(EKeys::F9, IE_Pressed, this, &AProximaPlayerController::HandleLoad);
+    InputComponent->BindKey(EKeys::LeftShift, IE_Pressed, this, &AProximaPlayerController::HandleSprintPressed);
+    InputComponent->BindKey(EKeys::LeftShift, IE_Released, this, &AProximaPlayerController::HandleSprintReleased);
+    InputComponent->BindKey(EKeys::RightShift, IE_Pressed, this, &AProximaPlayerController::HandleSprintPressed);
+    InputComponent->BindKey(EKeys::RightShift, IE_Released, this, &AProximaPlayerController::HandleSprintReleased);
+    InputComponent->BindKey(EKeys::MiddleMouseButton, IE_Pressed, this, &AProximaPlayerController::HandleBuildRotatePressed);
+    InputComponent->BindKey(EKeys::MiddleMouseButton, IE_Released, this, &AProximaPlayerController::HandleBuildRotateReleased);
+    InputComponent->BindKey(EKeys::One, IE_Pressed, this, &AProximaPlayerController::SelectTool);
+    InputComponent->BindKey(EKeys::Two, IE_Pressed, this, &AProximaPlayerController::WallTool);
+    InputComponent->BindKey(EKeys::Three, IE_Pressed, this, &AProximaPlayerController::RoomTool);
+    InputComponent->BindKey(EKeys::Four, IE_Pressed, this, &AProximaPlayerController::DoorTool);
+    InputComponent->BindKey(EKeys::Five, IE_Pressed, this, &AProximaPlayerController::WindowTool);
+    InputComponent->BindKey(EKeys::Six, IE_Pressed, this, &AProximaPlayerController::FloorTool);
+    InputComponent->BindKey(EKeys::Seven, IE_Pressed, this, &AProximaPlayerController::RoofTool);
+    InputComponent->BindKey(EKeys::O, IE_Pressed, this, &AProximaPlayerController::DoorTool);
 }
-
+bool AProximaPlayerController::IsBuildModeActive() const
+{
+    return Workshop && Workshop->IsBuildModeActive();
+}
 void AProximaPlayerController::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
-
-    if (!WallSession || !IsBuildModeActive() || WallSession->GetState() != EProximaPlacementState::Previewing)
+    if (IsBuildModeActive())
     {
-        DestroyWallPreview();
-        return;
-    }
-
-    FVector WorldPosition;
-    if (!TryGetBuildCursorPosition(WorldPosition))
-    {
-        return;
-    }
-
-    const FVector2D CandidateCm(WorldPosition.X, WorldPosition.Y);
-    TArray<FVector2D> ExistingEndpoints;
-    CollectExistingWallEndpoints(ExistingEndpoints);
-
-    const FVector2D SnappedCm = WallSession->SnapEndpoint(
-        CandidateCm,
-        ExistingEndpoints,
-        EndpointSnapToleranceCm);
-    WallSession->UpdateEndpoint(CandidateCm, SnappedCm);
-
-    if (!WallPreview)
-    {
-        FActorSpawnParameters SpawnParams;
-        SpawnParams.Owner = this;
-        SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-        WallPreview = GetWorld()->SpawnActor<AProximaWallPreview>(
-            AProximaWallPreview::StaticClass(),
-            FVector::ZeroVector,
-            FRotator::ZeroRotator,
-            SpawnParams);
-    }
-
-    if (WallPreview)
-    {
-        WallPreview->UpdatePreview(
-            WallSession->StartPointCm,
-            WallSession->SnappedEndpointCm,
-            WallSession->DefaultHeightCm,
-            WallSession->DefaultThicknessCm,
-            BuildPlaneZCm);
+        if (!IsInputKeyDown(EKeys::MiddleMouseButton)) { bBuildCameraRotateHeld = false; }
+        if (IsValid(BuildCameraActor))
+        {
+            const FVector2D Direction = PanInput.SizeSquared() > 1.0 ? PanInput.GetSafeNormal() : PanInput;
+            BuildCameraActor->Pan(Direction * BuildCameraPanSpeed * DeltaSeconds);
+        }
+        Workshop->UpdatePreview();
     }
 }
-
 void AProximaPlayerController::ToggleBuildMode()
 {
-    UGameInstance* GameInstance = GetGameInstance();
-    UProximaInteractionSubsystem* Interaction = GameInstance
-        ? GameInstance->GetSubsystem<UProximaInteractionSubsystem>()
-        : nullptr;
-    if (!Interaction || !WallSession)
+    if (!GetGameInstance() || !Workshop) { return; }
+    UProximaInteractionSubsystem* Interaction = GetGameInstance()->GetSubsystem<UProximaInteractionSubsystem>();
+    if (!Interaction) { return; }
+    const bool bEntering = !IsBuildModeActive();
+    PanInput = FVector2D::ZeroVector;
+    bBuildCameraRotateHeld = false;
+    if (AProximaCharacter* Character = Cast<AProximaCharacter>(GetPawn()))
     {
-        return;
-    }
-
-    if (Interaction->IsBuildModeActive())
-    {
-        Interaction->SetInteractionMode(EProximaInteractionMode::Live);
-        WallSession->CancelPlacement();
-        DestroyWallPreview();
-        bShowMouseCursor = false;
-    }
-    else
-    {
-        Interaction->SetInteractionMode(EProximaInteractionMode::Build);
-        WallSession->BeginPlacement();
-        bShowMouseCursor = true;
-    }
-}
-
-void AProximaPlayerController::BeginWallPlacement()
-{
-    UGameInstance* GameInstance = GetGameInstance();
-    if (!WallSession || !GameInstance)
-    {
-        return;
-    }
-
-    if (UProximaInteractionSubsystem* Interaction = GameInstance->GetSubsystem<UProximaInteractionSubsystem>())
-    {
-        Interaction->SetInteractionMode(EProximaInteractionMode::Build);
-        WallSession->BeginPlacement();
-        bShowMouseCursor = true;
-    }
-}
-
-void AProximaPlayerController::ConfirmWallPlacement()
-{
-    if (!WallSession || WallSession->GetState() != EProximaPlacementState::Previewing || !WallSession->bCanConfirm)
-    {
-        return;
-    }
-
-    UGameInstance* GameInstance = GetGameInstance();
-    UProximaCommandManager* CommandManager = GameInstance
-        ? GameInstance->GetSubsystem<UProximaCommandManager>()
-        : nullptr;
-    if (!CommandManager)
-    {
-        return;
-    }
-
-    FProximaWallData Data;
-    Data.WallId.Id = FProximaID::NewId();
-    Data.StartPoint.XCm = WallSession->StartPointCm.X;
-    Data.StartPoint.YCm = WallSession->StartPointCm.Y;
-    Data.EndPoint.XCm = WallSession->SnappedEndpointCm.X;
-    Data.EndPoint.YCm = WallSession->SnappedEndpointCm.Y;
-    Data.HeightCm = WallSession->DefaultHeightCm;
-    Data.ThicknessCm = WallSession->DefaultThicknessCm;
-
-    UProximaCreateWallCommand* Command = NewObject<UProximaCreateWallCommand>(CommandManager);
-    Command->WallData = Data;
-
-    if (CommandManager->ExecuteCommand(Command))
-    {
-        // Stay in Build Mode and immediately become ready for the next wall.
-        WallSession->BeginPlacement();
-        DestroyWallPreview();
-    }
-}
-
-void AProximaPlayerController::CancelWallPlacement()
-{
-    if (!WallSession)
-    {
-        return;
-    }
-
-    if (IsBuildModeActive())
-    {
-        // Cancel the current wall, not Build Mode itself.
-        WallSession->BeginPlacement();
-    }
-    else
-    {
-        WallSession->CancelPlacement();
-    }
-
-    DestroyWallPreview();
-}
-
-void AProximaPlayerController::RebuildAllWallActors(float PropertyOriginX, float PropertyOriginY)
-{
-    for (TPair<FProximaWallID, TObjectPtr<AProximaRuntimeWall>>& Pair : RuntimeWalls)
-    {
-        if (IsValid(Pair.Value))
+        Character->StopSprintBP();
+        Character->ConsumeMovementInputVector();
+        UCharacterMovementComponent* Movement = Character->GetCharacterMovement();
+        Movement->StopMovementImmediately();
+        if (bEntering)
         {
-            Pair.Value->Destroy();
+            SavedMovementMode = static_cast<uint8>(Movement->MovementMode);
+            Movement->DisableMovement();
+        }
+        else
+        {
+            Movement->SetMovementMode(static_cast<EMovementMode>(SavedMovementMode));
         }
     }
-    RuntimeWalls.Empty();
-
-    UGameInstance* GameInstance = GetGameInstance();
-    UProximaBuildingManager* BuildingManager = GameInstance
-        ? GameInstance->GetSubsystem<UProximaBuildingManager>()
-        : nullptr;
-    UWorld* World = GetWorld();
-    if (!BuildingManager || !World)
-    {
-        return;
-    }
-
-    const TArray<FProximaWallData> Walls = BuildingManager->GetAllWalls();
-    for (const FProximaWallData& Wall : Walls)
-    {
-        if (!Wall.WallId.IsValid() || Wall.IsDegenerate())
-        {
-            continue;
-        }
-
-        FActorSpawnParameters SpawnParams;
-        SpawnParams.Owner = this;
-        SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-        AProximaRuntimeWall* WallActor = World->SpawnActor<AProximaRuntimeWall>(
-            AProximaRuntimeWall::StaticClass(),
-            FVector::ZeroVector,
-            FRotator::ZeroRotator,
-            SpawnParams);
-        if (!WallActor)
-        {
-            continue;
-        }
-
-        WallActor->InitializeFromData(Wall, PropertyOriginX, PropertyOriginY);
-        RuntimeWalls.Add(Wall.WallId, WallActor);
-    }
+    Interaction->SetBuildModeActive(bEntering);
+    Workshop->SetBuildModeActive(bEntering);
+    if (bEntering) { ActivateBuildCamera(); } else { DeactivateBuildCamera(); }
 }
-
-bool AProximaPlayerController::IsBuildModeActive() const
+void AProximaPlayerController::ActivateBuildCamera()
 {
-    UGameInstance* GameInstance = GetGameInstance();
-    const UProximaInteractionSubsystem* Interaction = GameInstance
-        ? GameInstance->GetSubsystem<UProximaInteractionSubsystem>()
-        : nullptr;
-    return Interaction && Interaction->IsBuildModeActive();
+    if (!IsValid(BuildCameraActor))
+    {
+        FActorSpawnParameters Params;
+        Params.Owner = this;
+        Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        BuildCameraActor = GetWorld()->SpawnActor<AProximaBuildCamera>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
+        if (BuildCameraActor) { BuildCameraActor->InitializeOverPoint(FVector(200.0f, 0.0f, 100.0f)); }
+    }
+    if (BuildCameraActor) { SetViewTargetWithBlend(BuildCameraActor, 0.25f); }
+    bShowMouseCursor = true;
+    FInputModeGameAndUI Mode;
+    Mode.SetHideCursorDuringCapture(false);
+    Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+    SetInputMode(Mode);
 }
-
-bool AProximaPlayerController::TryGetBuildCursorPosition(FVector& OutWorldPosition) const
+void AProximaPlayerController::DeactivateBuildCamera()
 {
-    return UProximaBuildPlaneTrace::TraceBuildPlane(this, OutWorldPosition, BuildPlaneZCm);
+    if (GetPawn()) { SetViewTargetWithBlend(GetPawn(), 0.25f); }
+    bShowMouseCursor = false;
+    SetInputMode(FInputModeGameOnly());
 }
-
-void AProximaPlayerController::CollectExistingWallEndpoints(TArray<FVector2D>& OutEndpoints) const
+void AProximaPlayerController::HandleMoveForward(float Value)
 {
-    OutEndpoints.Reset();
-
-    UGameInstance* GameInstance = GetGameInstance();
-    const UProximaBuildingManager* BuildingManager = GameInstance
-        ? GameInstance->GetSubsystem<UProximaBuildingManager>()
-        : nullptr;
-    if (!BuildingManager)
-    {
-        return;
-    }
-
-    const TArray<FProximaWallData> Walls = BuildingManager->GetAllWalls();
-    OutEndpoints.Reserve(Walls.Num() * 2);
-    for (const FProximaWallData& Wall : Walls)
-    {
-        if (Wall.WallId.IsValid() && !Wall.IsDegenerate())
-        {
-            OutEndpoints.Add(Wall.StartPoint.ToVector2D());
-            OutEndpoints.Add(Wall.EndPoint.ToVector2D());
-        }
-    }
+    PanInput.X = Value;
+    if (!IsBuildModeActive()) { if (AProximaCharacter* C = Cast<AProximaCharacter>(GetPawn())) { C->MoveForward(Value); } }
 }
-
-void AProximaPlayerController::DestroyWallPreview()
+void AProximaPlayerController::HandleMoveRight(float Value)
 {
-    if (IsValid(WallPreview))
-    {
-        WallPreview->Destroy();
-    }
-    WallPreview = nullptr;
+    PanInput.Y = Value;
+    if (!IsBuildModeActive()) { if (AProximaCharacter* C = Cast<AProximaCharacter>(GetPawn())) { C->MoveRight(Value); } }
 }
-
-void AProximaPlayerController::HandleWallsChanged()
+void AProximaPlayerController::HandleTurn(float Value)
 {
-    RebuildAllWallActors();
+    if (!IsBuildModeActive()) { AddYawInput(Value); }
+    else if (bBuildCameraRotateHeld && BuildCameraActor) { BuildCameraActor->RotateYaw(Value * BuildCameraRotateSpeed); }
 }
-
-void AProximaPlayerController::HandlePrimaryBuildAction()
+void AProximaPlayerController::HandleLookUp(float Value) { if (!IsBuildModeActive()) { AddPitchInput(Value); } }
+void AProximaPlayerController::HandleSprintPressed()
 {
-    if (!WallSession || !IsBuildModeActive())
-    {
-        return;
-    }
-
-    if (WallSession->GetState() == EProximaPlacementState::ChoosingStart)
-    {
-        FVector WorldPosition;
-        if (!TryGetBuildCursorPosition(WorldPosition))
-        {
-            return;
-        }
-
-        const FVector2D CandidateCm(WorldPosition.X, WorldPosition.Y);
-        TArray<FVector2D> ExistingEndpoints;
-        CollectExistingWallEndpoints(ExistingEndpoints);
-        const FVector2D SnappedStartCm = WallSession->SnapEndpoint(
-            CandidateCm,
-            ExistingEndpoints,
-            EndpointSnapToleranceCm);
-        WallSession->ConfirmStart(SnappedStartCm);
-        return;
-    }
-
-    if (WallSession->GetState() == EProximaPlacementState::Previewing && WallSession->bCanConfirm)
-    {
-        ConfirmWallPlacement();
-    }
+    if (!IsBuildModeActive()) { if (AProximaCharacter* C = Cast<AProximaCharacter>(GetPawn())) { C->StartSprintBP(); } }
 }
-
-void AProximaPlayerController::HandleCancelBuildAction()
+void AProximaPlayerController::HandleSprintReleased()
 {
-    if (IsBuildModeActive())
+    if (!IsInputKeyDown(EKeys::LeftShift) && !IsInputKeyDown(EKeys::RightShift))
     {
-        CancelWallPlacement();
+        if (AProximaCharacter* C = Cast<AProximaCharacter>(GetPawn())) { C->StopSprintBP(); }
     }
 }
-
-void AProximaPlayerController::HandleUndoAction()
+void AProximaPlayerController::HandleBuildZoom(float Value)
 {
-    if (!IsBuildModeActive() || !(IsInputKeyDown(EKeys::LeftControl) || IsInputKeyDown(EKeys::RightControl)))
-    {
-        return;
-    }
-
-    if (UGameInstance* GameInstance = GetGameInstance())
-    {
-        if (UProximaCommandManager* CommandManager = GameInstance->GetSubsystem<UProximaCommandManager>())
-        {
-            CommandManager->Undo();
-        }
-    }
+    if (IsBuildModeActive() && BuildCameraActor && !Workshop->IsPointerOverPanel()) { BuildCameraActor->Zoom(-Value * BuildCameraZoomSpeed); }
 }
-
-void AProximaPlayerController::HandleRedoAction()
+void AProximaPlayerController::HandleBuildRotatePressed() { bBuildCameraRotateHeld = IsBuildModeActive() && !Workshop->IsPointerOverPanel(); }
+void AProximaPlayerController::HandleBuildRotateReleased() { bBuildCameraRotateHeld = false; }
+void AProximaPlayerController::HandlePrimary() { Workshop->PrimaryAction(); }
+void AProximaPlayerController::HandleCancel() { if (IsBuildModeActive()) { Workshop->Cancel(); } }
+void AProximaPlayerController::HandleUndo()
 {
-    if (!IsBuildModeActive() || !(IsInputKeyDown(EKeys::LeftControl) || IsInputKeyDown(EKeys::RightControl)))
-    {
-        return;
-    }
-
-    if (UGameInstance* GameInstance = GetGameInstance())
-    {
-        if (UProximaCommandManager* CommandManager = GameInstance->GetSubsystem<UProximaCommandManager>())
-        {
-            CommandManager->Redo();
-        }
-    }
+    if (IsInputKeyDown(EKeys::LeftControl) || IsInputKeyDown(EKeys::RightControl)) { Workshop->Undo(); }
 }
+void AProximaPlayerController::HandleRedo()
+{
+    if (IsInputKeyDown(EKeys::LeftControl) || IsInputKeyDown(EKeys::RightControl)) { Workshop->Redo(); }
+}
+void AProximaPlayerController::HandleDelete() { Workshop->DeleteSelection(); }
+void AProximaPlayerController::HandleSave() { Workshop->Save(); }
+void AProximaPlayerController::HandleLoad() { Workshop->Load(); }
+void AProximaPlayerController::HandleInspection()
+{
+    if (!IsBuildModeActive()) { if (AProximaCharacter* C = Cast<AProximaCharacter>(GetPawn())) { C->ToggleInspectionView(); } }
+}
+void AProximaPlayerController::SelectTool() { if (IsBuildModeActive()) { Workshop->SelectTool(EProximaBuildTool::Select); } }
+void AProximaPlayerController::WallTool() { if (IsBuildModeActive()) { Workshop->SelectTool(EProximaBuildTool::Wall); } }
+void AProximaPlayerController::RoomTool() { if (IsBuildModeActive()) { Workshop->SelectTool(EProximaBuildTool::Room); } }
+void AProximaPlayerController::DoorTool() { if (IsBuildModeActive()) { Workshop->SelectTool(EProximaBuildTool::Door); } }
+void AProximaPlayerController::WindowTool() { if (IsBuildModeActive()) { Workshop->SelectTool(EProximaBuildTool::Window); } }
+void AProximaPlayerController::FloorTool() { if (IsBuildModeActive()) { Workshop->SelectTool(EProximaBuildTool::Floor); } }
+void AProximaPlayerController::RoofTool() { if (IsBuildModeActive()) { Workshop->SelectTool(EProximaBuildTool::Roof); } }
+void AProximaPlayerController::BeginWallPlacement() { if (!IsBuildModeActive()) { ToggleBuildMode(); } WallTool(); }
+void AProximaPlayerController::CancelWallPlacement() { HandleCancel(); }
+void AProximaPlayerController::ConfirmWallPlacement() { HandlePrimary(); }

@@ -1,3 +1,15 @@
+# Current milestone status
+
+House workshop source implementation: complete for the scope in HOUSE_WORKSHOP.md.
+Unreal build, native automation, graphics, collision, packaging and performance:
+not verified for this source. Passing these gates is the next priority.
+
+The longer roadmap below is historical planning. It is not evidence of completed
+or tested game features. Rooms, rectangular slabs, a build panel and multiple
+openings are now authored; robust topology and full multi-storey building are still future work.
+
+---
+
 # Proxima Roadmap
 
 ## V0.1 - Foundation stabilization (current)

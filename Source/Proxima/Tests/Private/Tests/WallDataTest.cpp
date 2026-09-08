@@ -6,7 +6,7 @@
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FProximaWallDataTest,
     "Proxima.Building.WallData",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::SmokeFilter)
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
 bool FProximaWallDataTest::RunTest(const FString& Parameters)
 {

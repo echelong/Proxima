@@ -1,4 +1,5 @@
 #include "Save/ProximaSaveSystem.h"
+#include "Building/ProximaBuildingManager.h"
 #include "Save/ProximaSaveData.h"
 #include "Save/ProximaSerializationUtility.h"
 #include "ProximaModule.h"
@@ -16,7 +17,8 @@ void UProximaSaveSystem::Initialize(FSubsystemCollectionBase& Collection)
 
 bool UProximaSaveSystem::SaveProperty(const FString& SlotName, UProximaSaveData* Data)
 {
-    if (Data == nullptr || SlotName.TrimStartAndEnd().IsEmpty())
+    if (Data == nullptr || SlotName.TrimStartAndEnd().IsEmpty() ||
+        !UProximaBuildingManager::ValidateModel(Data->Walls, Data->Slabs))
     {
         return false;
     }
@@ -44,7 +46,8 @@ bool UProximaSaveSystem::LoadProperty(const FString& SlotName, UProximaSaveData*
     USaveGame* Loaded = UGameplayStatics::LoadGameFromSlot(ToNativeSlotName(SlotName), 0);
     UProximaSaveData* ProximaData = Cast<UProximaSaveData>(Loaded);
     if (ProximaData == nullptr || ProximaData->Header.Format != ProximaSaveFormat ||
-        !UProximaSerializationUtility::ValidateSaveVersion(ProximaData->Header.Version))
+        !UProximaSerializationUtility::ValidateSaveVersion(ProximaData->Header.Version) ||
+        !UProximaBuildingManager::ValidateModel(ProximaData->Walls, ProximaData->Slabs))
     {
         UE_LOG(LogProxima, Warning, TEXT("Rejected invalid or unsupported Proxima save slot '%s'."), *SlotName);
         return false;
@@ -58,6 +61,22 @@ bool UProximaSaveSystem::IsSlotValid(const FString& SlotName) const
 {
     return !SlotName.TrimStartAndEnd().IsEmpty() &&
         UGameplayStatics::DoesSaveGameExist(ToNativeSlotName(SlotName), 0);
+}
+
+
+bool UProximaSaveSystem::DeleteProperty(const FString& SlotName)
+{
+    if (SlotName.TrimStartAndEnd().IsEmpty())
+    {
+        return false;
+    }
+
+    const FString NativeSlot = ToNativeSlotName(SlotName);
+    if (!UGameplayStatics::DoesSaveGameExist(NativeSlot, 0))
+    {
+        return true;
+    }
+    return UGameplayStatics::DeleteGameInSlot(NativeSlot, 0);
 }
 
 FString UProximaSaveSystem::ToNativeSlotName(const FString& SlotName)

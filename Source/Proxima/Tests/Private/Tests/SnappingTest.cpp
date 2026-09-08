@@ -6,7 +6,7 @@
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FProximaSnappingTest,
     "Proxima.Systems.Snapping",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::SmokeFilter)
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
 bool FProximaSnappingTest::RunTest(const FString& Parameters)
 {

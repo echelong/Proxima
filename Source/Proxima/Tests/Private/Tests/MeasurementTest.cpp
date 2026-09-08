@@ -6,7 +6,7 @@
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FProximaMeasurementTest,
     "Proxima.Systems.Measurement",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::SmokeFilter)
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
 bool FProximaMeasurementTest::RunTest(const FString& Parameters)
 {

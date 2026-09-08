@@ -16,7 +16,8 @@ public class Proxima : ModuleRules
             "CoreUObject",
             "Engine",
             "InputCore",
-            "EnhancedInput"
+            "Slate",
+            "SlateCore"
         });
     }
 }

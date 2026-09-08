@@ -23,6 +23,9 @@ public:
     UFUNCTION(BlueprintPure, Category = "Proxima|Save")
     bool IsSlotValid(const FString& SlotName) const;
 
+    UFUNCTION(BlueprintCallable, Category = "Proxima|Save")
+    bool DeleteProperty(const FString& SlotName);
+
 private:
     static FString ToNativeSlotName(const FString& SlotName);
 };

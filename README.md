@@ -27,3 +27,18 @@ Unreal Engine 5
 
 Core gameplay systems will primarily use C++, with Blueprints used where
 rapid visual iteration is useful.
+
+## Current development milestone
+
+The house-building workshop passed UE 5.8.2 Linux editor compilation and linking.
+This revision fixes the subsequent starter-material bootstrap error; asset
+generation, Unreal automation and native playtesting still need to pass. It adds metric
+construction controls, rectangular rooms/floors/flat roofs, multiple wall openings,
+undo/redo, save/load, and an example home.
+
+See [the workshop guide](Docs/HOUSE_WORKSHOP.md) and
+[current verification state](Docs/AUTONOMOUS_LAST_VERIFY.md).
+
+```bash
+bash Tools/linux_workshop.sh --play
+```

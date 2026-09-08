@@ -6,12 +6,13 @@
 #include "BuildMode/ProximaWallPlacementSession.h"
 #include "BuildMode/ProximaWallSnapping.h"
 #include "Building/ProximaWallData.h"
+#include "Building/ProximaBuildingManager.h"
 #include "UObject/StrongObjectPtr.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FProximaExactLengthTest,
     "Proxima.BuildMode.ExactLength",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::SmokeFilter)
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
 bool FProximaExactLengthTest::RunTest(const FString& Parameters)
 {
@@ -48,7 +49,7 @@ bool FProximaExactLengthTest::RunTest(const FString& Parameters)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FProximaWallSnappingTest,
     "Proxima.BuildMode.WallSnapping",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::SmokeFilter)
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
 bool FProximaWallSnappingTest::RunTest(const FString& Parameters)
 {
@@ -101,9 +102,64 @@ bool FProximaWallSnappingTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FProximaWallSessionErgonomicsTest,
+    "Proxima.BuildMode.SessionErgonomics",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FProximaWallSessionErgonomicsTest::RunTest(const FString& Parameters)
+{
+    TStrongObjectPtr<UProximaWallPlacementSession> Session(NewObject<UProximaWallPlacementSession>());
+    Session->MinWallLengthCm = 1.0f;
+
+    Session->BeginPlacement();
+    Session->ConfirmStart(FVector2D(0.0f, 0.0f));
+
+    // Length metric: 300 cm → 3.00 m
+    Session->UpdateEndpoint(FVector2D(300.0f, 0.0f), FVector2D(300.0f, 0.0f));
+    TestTrue(TEXT("PreviewLengthM is 3.0 for 300cm wall"),
+        FMath::IsNearlyEqual(Session->PreviewLengthM, 3.0f, 0.001f));
+    TestTrue(TEXT("3m wall can be confirmed"), Session->bCanConfirm);
+
+    Session->UpdateEndpoint(FVector2D(300.0f, 0.0f), FVector2D(300.0f, 0.0f), true);
+    TestFalse(TEXT("Duplicate geometry preview cannot be confirmed"), Session->bCanConfirm);
+    TestTrue(TEXT("Duplicate preview still reports its real metric length"),
+        FMath::IsNearlyEqual(Session->PreviewLengthM, 3.0f, 0.001f));
+
+    // Length metric: 450 cm → 4.50 m
+    Session->UpdateEndpoint(FVector2D(450.0f, 0.0f), FVector2D(450.0f, 0.0f));
+    TestTrue(TEXT("PreviewLengthM is 4.5 for 450cm wall"),
+        FMath::IsNearlyEqual(Session->PreviewLengthM, 4.5f, 0.001f));
+
+    Session->ContinueFromCurrentEndpoint();
+    TestTrue(TEXT("Chained wall starts from prior snapped endpoint"),
+        Session->StartPointCm.Equals(FVector2D(450.0f, 0.0f), 0.001f));
+    TestTrue(TEXT("Chained wall remains in Previewing state"),
+        Session->GetState() == EProximaPlacementState::Previewing);
+    TestTrue(TEXT("Chained wall resets preview length"),
+        FMath::IsNearlyZero(Session->PreviewLengthM));
+    TestFalse(TEXT("Chained zero-length preview cannot confirm"), Session->bCanConfirm);
+
+    // Start a fresh wall for zero-length guards.
+    Session->BeginPlacement();
+    Session->ConfirmStart(FVector2D(0.0f, 0.0f));
+
+    // Near-zero wall: 0.2 cm → cannot confirm
+    Session->UpdateEndpoint(FVector2D(0.2f, 0.0f), FVector2D(0.0f, 0.0f));
+    TestTrue(TEXT("Zero-length wall: PreviewLengthM is 0.0"),
+        FMath::IsNearlyEqual(Session->PreviewLengthM, 0.0f, 0.001f));
+    TestFalse(TEXT("Zero-length wall: bCanConfirm is false"), Session->bCanConfirm);
+
+    // Zero-length: 0.0 cm → cannot confirm
+    Session->UpdateEndpoint(FVector2D(0.0f, 0.0f), FVector2D(0.0f, 0.0f));
+    TestTrue(TEXT("Exact-zero wall: bCanConfirm is false"), Session->bCanConfirm == false);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FProximaWallGeometryTest,
     "Proxima.BuildMode.WallGeometry",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::SmokeFilter)
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
 bool FProximaWallGeometryTest::RunTest(const FString& Parameters)
 {
@@ -139,7 +195,7 @@ bool FProximaWallGeometryTest::RunTest(const FString& Parameters)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FProximaWallDataExtendedTest,
     "Proxima.Building.WallDataExtended",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::SmokeFilter)
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
 bool FProximaWallDataExtendedTest::RunTest(const FString& Parameters)
 {
@@ -162,6 +218,15 @@ bool FProximaWallDataExtendedTest::RunTest(const FString& Parameters)
 
     const float ExpectedYaw = FMath::RadiansToDegrees(FMath::Atan2(400.0f, 300.0f));
     TestTrue(TEXT("Wall rotation"), FMath::IsNearlyEqual(Wall.GetRotation().Yaw, ExpectedYaw, 0.1f));
+
+    FProximaWallData Reverse = Wall;
+    Swap(Reverse.StartPoint, Reverse.EndPoint);
+    TestTrue(TEXT("Duplicate geometry is direction-independent"),
+        UProximaBuildingManager::AreWallGeometriesEquivalent(Wall, Reverse));
+
+    Reverse.EndPoint.XCm += 20.0f;
+    TestFalse(TEXT("Meaningfully different geometry is not a duplicate"),
+        UProximaBuildingManager::AreWallGeometriesEquivalent(Wall, Reverse));
 
     return true;
 }

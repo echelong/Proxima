@@ -39,6 +39,26 @@ bool UProximaDeleteWallCommand::Undo_Implementation()
     return Manager != nullptr && bCapturedWall && Manager->AddWall(DeletedWallData);
 }
 
+bool UProximaAddWallOpeningCommand::Execute_Implementation()
+{
+    UProximaBuildingManager* Manager = GetBuildingManager();
+    if (!Manager)
+    {
+        return false;
+    }
+    return Manager->AddWallOpening(WallId, OpeningData);
+}
+
+bool UProximaAddWallOpeningCommand::Undo_Implementation()
+{
+    UProximaBuildingManager* Manager = GetBuildingManager();
+    if (!Manager)
+    {
+        return false;
+    }
+    return Manager->RemoveWallOpening(WallId, OpeningData.OpeningId);
+}
+
 bool UProximaModifyWallCommand::Execute_Implementation()
 {
     UProximaBuildingManager* Manager = GetBuildingManager();
