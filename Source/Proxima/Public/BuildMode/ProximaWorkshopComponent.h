@@ -82,6 +82,25 @@ private:
     FVector2D Snap(
         const FVector2D& Point,
         bool bApplyGridFallback = true) const;
+
+    /**
+     * Finds a nearby endpoint or point along an existing wall.
+     * This drives the general BLUE architectural connection cue.
+     */
+    bool FindWallAttachment(
+        const FVector2D& CandidateCm,
+        FVector2D& OutAttachmentCm,
+        float ToleranceCm) const;
+
+    /**
+     * Finds a nearby genuinely open wall-chain endpoint.
+     * Uses a larger radius than ordinary geometry snapping.
+     */
+    bool FindResumableEndpoint(
+        const FVector2D& CandidateCm,
+        FVector2D& OutEndpointCm,
+        TArray<FVector2D>& OutChainPointsCm,
+        float ToleranceCm) const;
     void RectangleBounds(FVector2D& Min, FVector2D& Max) const;
     bool CommitModel(const TArray<FProximaWallData>& Walls, const TArray<FProximaSlabData>& Slabs);
     void CommitRectangle();

@@ -139,6 +139,201 @@ FVector2D UProximaWorkshopComponent::Snap(
             GridCm)
         : Point;
 }
+bool UProximaWorkshopComponent::FindWallAttachment(
+    const FVector2D& CandidateCm,
+    FVector2D& OutAttachmentCm,
+    float ToleranceCm) const
+{
+    if (!Model() ||
+        !Session)
+    {
+        return false;
+    }
+
+    const float Tolerance =
+        FMath::Max(
+            0.0f,
+            ToleranceCm);
+
+    float BestDistance =
+        Tolerance;
+
+    bool bFound =
+        false;
+
+    for (const FProximaWallData& Wall :
+         Model()->GetWallsView())
+    {
+        double Along = 0.0;
+
+        const auto Closest =
+            ProximaGeometry::ClosestPoint(
+                {
+                    CandidateCm.X,
+                    CandidateCm.Y
+                },
+                {
+                    Wall.StartPoint.XCm,
+                    Wall.StartPoint.YCm
+                },
+                {
+                    Wall.EndPoint.XCm,
+                    Wall.EndPoint.YCm
+                },
+                &Along);
+
+        const FVector2D Attachment(
+            Closest.X,
+            Closest.Y);
+
+        const float Distance =
+            FVector2D::Distance(
+                CandidateCm,
+                Attachment);
+
+        if (Distance >
+            BestDistance)
+        {
+            continue;
+        }
+
+        /*
+         * Do not immediately snap a new preview back onto its own origin.
+         */
+        if (Attachment.Equals(
+                Session->StartPointCm,
+                1.0f))
+        {
+            continue;
+        }
+
+        /*
+         * If 45-degree lock is active, only accept an attachment that still
+         * lies on approximately the same locked direction.
+         */
+        if (bAngleLock)
+        {
+            const FVector2D Direction =
+                Attachment -
+                Session->StartPointCm;
+
+            if (!Direction.IsNearlyZero())
+            {
+                const double ActualAngle =
+                    FMath::Atan2(
+                        Direction.Y,
+                        Direction.X);
+
+                const double LockedAngle =
+                    FMath::GridSnap(
+                        ActualAngle,
+                        PI / 4.0);
+
+                const double Difference =
+                    FMath::Abs(
+                        FMath::UnwindRadians(
+                            ActualAngle -
+                            LockedAngle));
+
+                if (Difference >
+                    FMath::DegreesToRadians(
+                        3.0))
+                {
+                    continue;
+                }
+            }
+        }
+
+        BestDistance =
+            Distance;
+
+        OutAttachmentCm =
+            Attachment;
+
+        bFound =
+            true;
+    }
+
+    return bFound;
+}
+
+bool UProximaWorkshopComponent::FindResumableEndpoint(
+    const FVector2D& CandidateCm,
+    FVector2D& OutEndpointCm,
+    TArray<FVector2D>& OutChainPointsCm,
+    float ToleranceCm) const
+{
+    OutChainPointsCm.Reset();
+
+    if (!Model())
+    {
+        return false;
+    }
+
+    const float Tolerance =
+        FMath::Max(
+            0.0f,
+            ToleranceCm);
+
+    float BestDistance =
+        Tolerance;
+
+    bool bFound =
+        false;
+
+    for (const FProximaWallData& Wall :
+         Model()->GetWallsView())
+    {
+        const FVector2D Endpoints[] = {
+            Wall.StartPoint.ToVector2D(),
+            Wall.EndPoint.ToVector2D()
+        };
+
+        for (const FVector2D& Endpoint :
+             Endpoints)
+        {
+            const float Distance =
+                FVector2D::Distance(
+                    CandidateCm,
+                    Endpoint);
+
+            if (Distance >
+                BestDistance)
+            {
+                continue;
+            }
+
+            TArray<FVector2D>
+                CandidateChain;
+
+            if (!FProximaWallTopology::
+                    BuildOpenChainEndingAt(
+                        Model()->GetWallsView(),
+                        Endpoint,
+                        CandidateChain,
+                        0.1f))
+            {
+                continue;
+            }
+
+            BestDistance =
+                Distance;
+
+            OutEndpointCm =
+                Endpoint;
+
+            OutChainPointsCm =
+                MoveTemp(
+                    CandidateChain);
+
+            bFound =
+                true;
+        }
+    }
+
+    return bFound;
+}
+
 void UProximaWorkshopComponent::RectangleBounds(FVector2D& Min, FVector2D& Max) const
 {
     FVector2D End = Cursor;
@@ -182,30 +377,53 @@ void UProximaWorkshopComponent::UpdatePreview()
         Session->GetState() ==
             EProximaPlacementState::ChoosingStart)
     {
-        TArray<FVector2D> ExistingChain;
+        FVector2D ResumeEndpoint;
+        TArray<FVector2D> ResumeChain;
 
-        if (FProximaWallTopology::BuildOpenChainEndingAt(
-                Model()->GetWallsView(),
-                Cursor,
-                ExistingChain,
-                0.1f))
+        /*
+         * Large CYAN cross around every resumable open endpoint.
+         * The 70 cm interaction radius makes it easy to reacquire.
+         */
+        if (FindResumableEndpoint(
+                Raw,
+                ResumeEndpoint,
+                ResumeChain,
+                70.0f))
         {
-            constexpr float GripSizeCm =
-                24.0f;
+            constexpr float GripArmCm =
+                42.0f;
+
+            constexpr float GripThicknessCm =
+                12.0f;
 
             ShowPreview(
                 0,
-                Cursor -
+                ResumeEndpoint -
                     FVector2D(
-                        GripSizeCm * 0.5f,
+                        GripArmCm,
                         0.0f),
-                Cursor +
+                ResumeEndpoint +
                     FVector2D(
-                        GripSizeCm * 0.5f,
+                        GripArmCm,
                         0.0f),
-                GripSizeCm,
-                GripSizeCm,
-                0.0f,
+                16.0f,
+                GripThicknessCm,
+                3.0f,
+                true);
+
+            ShowPreview(
+                1,
+                ResumeEndpoint -
+                    FVector2D(
+                        0.0f,
+                        GripArmCm),
+                ResumeEndpoint +
+                    FVector2D(
+                        0.0f,
+                        GripArmCm),
+                16.0f,
+                GripThicknessCm,
+                3.0f,
                 true);
 
             if (Previews.IsValidIndex(0))
@@ -213,6 +431,17 @@ void UProximaWorkshopComponent::UpdatePreview()
                 Previews[0]->SetCue(
                     EProximaWallPreviewCue::Resume);
             }
+
+            if (Previews.IsValidIndex(1))
+            {
+                Previews[1]->SetCue(
+                    EProximaWallPreviewCue::Resume);
+            }
+
+            Status =
+                TEXT(
+                    "CYAN: click the open endpoint "
+                    "to resume this wall chain.");
         }
     }
     else if (
@@ -294,10 +523,48 @@ void UProximaWorkshopComponent::UpdatePreview()
         }
 
         /*
-         * For ordinary walls, restore exact existing-endpoint snapping after
-         * angle/length constraints. Rectangle assist keeps its calculated cap.
+         * BLUE is now a general connection state rather than being limited
+         * to the third side of a rectangle.
+         *
+         * A wall can connect to:
+         *   - an existing endpoint
+         *   - the interior of an existing wall
+         *
+         * The persistent topology layer will split an interior target at the
+         * exact attachment point.
          */
-        if (!bRectangleAssist)
+        bool bConnectionReady =
+            false;
+
+        if (ExactLengthCm <= 0.0f)
+        {
+            FVector2D Attachment;
+
+            const float AttachmentToleranceCm =
+                FMath::Max(
+                    35.0f,
+                    GridCm * 2.0f);
+
+            if (FindWallAttachment(
+                    End,
+                    Attachment,
+                    AttachmentToleranceCm))
+            {
+                End =
+                    Attachment;
+
+                bConnectionReady =
+                    true;
+            }
+            else if (!bRectangleAssist)
+            {
+                End =
+                    Snap(
+                        End,
+                        false);
+            }
+        }
+        else if (!bRectangleAssist)
         {
             End =
                 Snap(
@@ -395,18 +662,34 @@ void UProximaWorkshopComponent::UpdatePreview()
                             Closure);
                 }
                 else if (
+                    bConnectionReady ||
                     bRectangleCornerReady)
                 {
-                    // Blue = third side has reached the matching corner.
+                    /*
+                     * BLUE = meaningful architectural connection.
+                     *
+                     * It can now occur on any wall in the chain, including
+                     * later walls in an L-shaped or irregular room.
+                     */
                     Previews[0]->SetCue(
                         EProximaWallPreviewCue::
                             RectangleCorner);
 
-                    Status =
-                        TEXT(
-                            "BLUE: rectangle side matched. "
-                            "Press C to close automatically, "
-                            "or click to place wall 3.");
+                    if (bRectangleCornerReady)
+                    {
+                        Status =
+                            TEXT(
+                                "BLUE: matched rectangle edge. "
+                                "Press C to auto-close, "
+                                "or click to continue.");
+                    }
+                    else
+                    {
+                        Status =
+                            TEXT(
+                                "BLUE: click to connect this "
+                                "wall to existing geometry.");
+                    }
                 }
             }
         }
@@ -751,13 +1034,14 @@ void UProximaWorkshopComponent::PrimaryAction()
         if (Session->GetState() ==
             EProximaPlacementState::ChoosingStart)
         {
+            FVector2D ResumeEndpoint;
             TArray<FVector2D> ExistingChain;
 
-            if (FProximaWallTopology::BuildOpenChainEndingAt(
-                    Model()->GetWallsView(),
+            if (FindResumableEndpoint(
                     Cursor,
+                    ResumeEndpoint,
                     ExistingChain,
-                    0.1f) &&
+                    70.0f) &&
                 Session->ResumeFromExistingChain(
                     ExistingChain))
             {

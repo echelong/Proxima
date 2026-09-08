@@ -223,6 +223,123 @@ bool FProximaRoomTopologyTest::RunTest(
             Rooms.IsEmpty());
     }
 
+    {
+        /*
+         * Irregular/L-style closure:
+         *
+         * final wall ends in the INTERIOR of the original first wall.
+         * The topology layer must split wall 1 and room detection must
+         * recognize the bounded face.
+         */
+        const TArray<FProximaWallData> SourceWalls = {
+            MakeRoomWall(
+                0.0f,
+                0.0f,
+                600.0f,
+                0.0f),
+
+            MakeRoomWall(
+                600.0f,
+                0.0f,
+                600.0f,
+                400.0f),
+
+            MakeRoomWall(
+                600.0f,
+                400.0f,
+                300.0f,
+                400.0f),
+
+            MakeRoomWall(
+                300.0f,
+                400.0f,
+                300.0f,
+                200.0f),
+
+            MakeRoomWall(
+                300.0f,
+                200.0f,
+                100.0f,
+                200.0f),
+
+            MakeRoomWall(
+                100.0f,
+                200.0f,
+                100.0f,
+                0.0f)
+        };
+
+        TArray<FProximaWallData>
+            BuiltWalls;
+
+        bool bAllInserted =
+            true;
+
+        for (const FProximaWallData& Wall :
+             SourceWalls)
+        {
+            TArray<FProximaWallData> Next;
+
+            if (!FProximaWallTopology::InsertWall(
+                    BuiltWalls,
+                    Wall,
+                    Next))
+            {
+                bAllInserted =
+                    false;
+                break;
+            }
+
+            BuiltWalls =
+                MoveTemp(Next);
+        }
+
+        TestTrue(
+            TEXT(
+                "Irregular walls insert through topology"),
+            bAllInserted);
+
+        TArray<FProximaRoomData> Rooms;
+
+        TestTrue(
+            TEXT(
+                "Irregular closure into first-wall interior creates room"),
+            bAllInserted &&
+            FProximaRoomTopology::DetectRooms(
+                BuiltWalls,
+                Rooms));
+
+        TestEqual(
+            TEXT(
+                "Irregular interior attachment creates one room"),
+            Rooms.Num(),
+            1);
+
+        if (Rooms.Num() == 1)
+        {
+            TestTrue(
+                TEXT(
+                    "Irregular room has positive area"),
+                Rooms[0].AreaCm2 >
+                    0.0f);
+
+            TArray<int32> Triangles;
+
+            TestTrue(
+                TEXT(
+                    "Irregular automatic floor triangulates"),
+                AProximaRuntimeRoomFloor::
+                    TriangulatePolygon(
+                        Rooms[0].VerticesCm,
+                        Triangles));
+
+            TestTrue(
+                TEXT(
+                    "Irregular automatic floor has triangles"),
+                !Triangles.IsEmpty());
+        }
+    }
+
     return true;
 }
 

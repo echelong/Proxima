@@ -9,6 +9,13 @@
 namespace
 {
 
+/*
+ * The Workshop ground/build plane sits at Z=0.
+ * Keep the automatic floor slightly above it to avoid coplanar rendering.
+ */
+constexpr float DerivedRoomFloorSurfaceOffsetCm =
+    2.0f;
+
 double Cross2D(
     const FVector2D& A,
     const FVector2D& B,
@@ -312,6 +319,12 @@ InitializeFromData(
     }
 
     RoomId = Data.RoomId;
+
+    SetActorLocation(
+        FVector(
+            0.0f,
+            0.0f,
+            DerivedRoomFloorSurfaceOffsetCm));
 
     TArray<FVector> Vertices;
     TArray<FVector> Normals;
