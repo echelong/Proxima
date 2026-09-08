@@ -78,7 +78,7 @@ def material(name, glass=False, default_tint=(0.82, 0.80, 0.74, 1.0), default_ro
 
 
 def build():
-    unreal.log("PROXIMA_BOOTSTRAP_REVISION=direct-materials-1")
+    unreal.log("PROXIMA_BOOTSTRAP_REVISION=residential-lot-1")
     ASSETS.make_directory(ASSET_ROOT + "/Materials")
     ASSETS.make_directory(ASSET_ROOT + "/Maps")
     material("M_Surface")
@@ -125,6 +125,153 @@ def build():
         require(level.save_current_level(), "Workshop level save failed")
     else:
         require(level.load_level(MAP), "Existing Workshop level could not be loaded")
+
+    # ------------------------------------------------------------------
+    # NORMALIZE THE EXISTING WORKSHOP LOT
+    # ------------------------------------------------------------------
+    #
+    # The original prototype used a 2.2 km x 2.2 km cube as temporary
+    # ground. It was useful during the earliest tests but looks like an
+    # enormous artificial floor when the build camera pulls upward.
+    #
+    # Keep the construction plane itself at Z=0, but present a deliberate
+    # residential lot instead.
+    #
+    # LOT:
+    #   40 m x 40 m
+    #   surface exactly at Z=0
+    #
+    # The build cursor does NOT depend on collision with this mesh.
+    # ProximaBuildPlaneTrace intersects the mathematical horizontal plane.
+    #
+    cube = require(
+        ASSETS.load_asset("/Engine/BasicShapes/Cube"),
+        "Engine cube missing"
+    )
+
+    def find_level_actor(*labels):
+        wanted = set(labels)
+
+        for actor in actors.get_all_level_actors():
+            if actor.get_actor_label() in wanted:
+                return actor
+
+        return None
+
+    def ensure_workshop_box(
+        name,
+        center,
+        size,
+        finish,
+        aliases=(),
+        collision_profile="BlockAll",
+    ):
+        actor = find_level_actor(
+            name,
+            *aliases
+        )
+
+        if actor is None:
+            actor = require(
+                actors.spawn_actor_from_class(
+                    unreal.StaticMeshActor,
+                    unreal.Vector(*center),
+                    unreal.Rotator(0, 0, 0)
+                ),
+                "Could not create Workshop actor: " + name
+            )
+
+        if actor.get_actor_label() != name:
+            actor.set_actor_label(name)
+
+        actor.set_actor_location(
+            unreal.Vector(*center),
+            False,
+            False
+        )
+
+        actor.set_actor_scale3d(
+            unreal.Vector(
+                *(value / 100.0 for value in size)
+            )
+        )
+
+        mesh = require(
+            actor.get_component_by_class(
+                unreal.StaticMeshComponent
+            ),
+            "Static mesh component missing: " + name
+        )
+
+        mesh.set_static_mesh(cube)
+        mesh.set_material(0, finish)
+        mesh.set_collision_profile_name(
+            collision_profile
+        )
+
+        return actor
+
+    # The old actor is deliberately reused and renamed.
+    #
+    # 20 cm thick:
+    # centre Z=-10 -> top surface Z=0.
+    ensure_workshop_box(
+        "Residential lot",
+        (0, 0, -10),
+        (4000, 4000, 20),
+        grass,
+        aliases=("Landscape base",),
+        collision_profile="BlockAll",
+    )
+
+    # Simple 2.4 m wide stone approach.
+    ensure_workshop_box(
+        "Entry path",
+        (0, -1500, 1),
+        (240, 1000, 2),
+        stone,
+        collision_profile="NoCollision",
+    )
+
+    # Thin perimeter strips give Build Mode a readable property boundary
+    # without creating physical walls or interfering with placement.
+    boundary_specs = (
+        (
+            "Lot boundary north",
+            (0, 1996, 1),
+            (4000, 8, 2),
+        ),
+        (
+            "Lot boundary south",
+            (0, -1996, 1),
+            (4000, 8, 2),
+        ),
+        (
+            "Lot boundary east",
+            (1996, 0, 1),
+            (8, 4000, 2),
+        ),
+        (
+            "Lot boundary west",
+            (-1996, 0, 1),
+            (8, 4000, 2),
+        ),
+    )
+
+    for boundary_name, boundary_center, boundary_size in boundary_specs:
+        ensure_workshop_box(
+            boundary_name,
+            boundary_center,
+            boundary_size,
+            stone,
+            collision_profile="NoCollision",
+        )
+
+    require(
+        level.save_current_level(),
+        "Could not save normalized Workshop lot"
+    )
+
     required = [MAP] + [ASSET_ROOT + "/Materials/" + name
                         for name in ("M_Surface", "M_Glass", "M_Grass", "M_Stone")]
     for path in required:
