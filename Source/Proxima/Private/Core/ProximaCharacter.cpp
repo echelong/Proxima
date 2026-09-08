@@ -3,7 +3,8 @@
 #include "UObject/ConstructorHelpers.h"
 #include "Engine/SkeletalMesh.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "Animation/AnimInstance.h"
+#include "Animation/AnimationAsset.h"
+#include "Animation/AnimSingleNodeInstance.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -12,7 +13,7 @@
 
 AProximaCharacter::AProximaCharacter()
 {
-    PrimaryActorTick.bCanEverTick = false;
+    PrimaryActorTick.bCanEverTick = true;
 
     bUseControllerRotationPitch = false;
     bUseControllerRotationYaw = false;
@@ -25,9 +26,23 @@ AProximaCharacter::AProximaCharacter()
         ProximaVisibleCharacterMesh(
             TEXT("/Game/Characters/Mannequins/Meshes/SKM_Manny.SKM_Manny"));
 
-    static ConstructorHelpers::FClassFinder<UAnimInstance>
-        ProximaVisibleCharacterAnimation(
-            TEXT("/Game/Characters/Mannequins/Animations/ABP_Manny"));
+    static ConstructorHelpers::FObjectFinder<UAnimationAsset>
+        ProximaIdleAnimation(
+            TEXT(
+                "/Game/Characters/Mannequins/"
+                "Animations/Manny/MM_Idle.MM_Idle"));
+
+    static ConstructorHelpers::FObjectFinder<UAnimationAsset>
+        ProximaWalkAnimation(
+            TEXT(
+                "/Game/Characters/Mannequins/"
+                "Animations/Manny/MM_Walk_Fwd.MM_Walk_Fwd"));
+
+    static ConstructorHelpers::FObjectFinder<UAnimationAsset>
+        ProximaRunAnimation(
+            TEXT(
+                "/Game/Characters/Mannequins/"
+                "Animations/Manny/MM_Run_Fwd.MM_Run_Fwd"));
 
     if (ProximaVisibleCharacterMesh.Succeeded())
     {
@@ -54,13 +69,36 @@ AProximaCharacter::AProximaCharacter()
         GetMesh()->SetCastShadow(true);
     }
 
-    if (ProximaVisibleCharacterAnimation.Succeeded())
-    {
-        GetMesh()->SetAnimationMode(
-            EAnimationMode::AnimationBlueprint);
+    IdleAnimation =
+        ProximaIdleAnimation.Succeeded()
+            ? ProximaIdleAnimation.Object
+            : nullptr;
 
-        GetMesh()->SetAnimInstanceClass(
-            ProximaVisibleCharacterAnimation.Class);
+    WalkAnimation =
+        ProximaWalkAnimation.Succeeded()
+            ? ProximaWalkAnimation.Object
+            : nullptr;
+
+    RunAnimation =
+        ProximaRunAnimation.Succeeded()
+            ? ProximaRunAnimation.Object
+            : nullptr;
+
+    /*
+     * Avoid template Animation Blueprints entirely.
+     * Proxima owns locomotion state directly in C++.
+     */
+    GetMesh()->SetAnimationMode(
+        EAnimationMode::AnimationSingleNode);
+
+    if (IdleAnimation)
+    {
+        GetMesh()->PlayAnimation(
+            IdleAnimation,
+            true);
+
+        CurrentAnimationState =
+            0;
     }
 
     UCharacterMovementComponent* Movement = GetCharacterMovement();
@@ -111,6 +149,100 @@ AProximaCharacter::AProximaCharacter()
     Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
     Camera->SetupAttachment(SpringArm, USpringArmComponent::SocketName);
     Camera->bUsePawnControlRotation = false;
+}
+
+void AProximaCharacter::Tick(
+    float DeltaSeconds)
+{
+    Super::Tick(
+        DeltaSeconds);
+
+    if (!GetMesh())
+    {
+        return;
+    }
+
+    const float SpeedCmPerSecond =
+        GetVelocity().Size2D();
+
+    uint8 DesiredState =
+        0;
+
+    UAnimationAsset* DesiredAnimation =
+        IdleAnimation;
+
+    if (SpeedCmPerSecond >
+        20.0f)
+    {
+        if (bSprintRequested ||
+            SpeedCmPerSecond >
+                300.0f)
+        {
+            DesiredState =
+                2;
+
+            DesiredAnimation =
+                RunAnimation;
+        }
+        else
+        {
+            DesiredState =
+                1;
+
+            DesiredAnimation =
+                WalkAnimation;
+        }
+    }
+
+    if (!DesiredAnimation)
+    {
+        return;
+    }
+
+    if (DesiredState !=
+        CurrentAnimationState)
+    {
+        GetMesh()->PlayAnimation(
+            DesiredAnimation,
+            true);
+
+        CurrentAnimationState =
+            DesiredState;
+    }
+
+    /*
+     * Scale animation playback gently to actual movement speed.
+     * This keeps feet closer to the character's physical capsule speed.
+     */
+    if (UAnimSingleNodeInstance* Instance =
+            GetMesh()->
+            GetSingleNodeInstance())
+    {
+        float PlayRate =
+            1.0f;
+
+        if (DesiredState == 1)
+        {
+            PlayRate =
+                FMath::Clamp(
+                    SpeedCmPerSecond /
+                        180.0f,
+                    0.7f,
+                    1.4f);
+        }
+        else if (DesiredState == 2)
+        {
+            PlayRate =
+                FMath::Clamp(
+                    SpeedCmPerSecond /
+                        450.0f,
+                    0.75f,
+                    1.35f);
+        }
+
+        Instance->SetPlayRate(
+            PlayRate);
+    }
 }
 
 void AProximaCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)

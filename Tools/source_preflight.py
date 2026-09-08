@@ -109,12 +109,46 @@ def main():
 
     if (
         'ProximaVisibleCharacterMesh' not in character_cpp or
-        'ProximaVisibleCharacterAnimation' not in character_cpp or
+        'ProximaIdleAnimation' not in character_cpp or
+        'ProximaWalkAnimation' not in character_cpp or
+        'ProximaRunAnimation' not in character_cpp or
+        'AnimationSingleNode' not in character_cpp or
         'LiveCameraDistance' not in character_cpp
     ):
         raise ValueError(
             'Visible third-person character wiring is incomplete'
         )
+
+    if (
+        'ABP_Manny' in character_cpp or
+        'AnimationBlueprint' in character_cpp
+    ):
+        raise ValueError(
+            'Proxima character must not depend on the '
+            'template Manny Animation Blueprint'
+        )
+
+    required_character_animations = [
+        ROOT / (
+            'Content/Characters/Mannequins/'
+            'Animations/Manny/MM_Idle.uasset'
+        ),
+        ROOT / (
+            'Content/Characters/Mannequins/'
+            'Animations/Manny/MM_Walk_Fwd.uasset'
+        ),
+        ROOT / (
+            'Content/Characters/Mannequins/'
+            'Animations/Manny/MM_Run_Fwd.uasset'
+        ),
+    ]
+
+    for animation in required_character_animations:
+        if not animation.is_file():
+            raise ValueError(
+                'Required Proxima character animation is missing: '
+                + str(animation.relative_to(ROOT))
+            )
 
     if not (
         ROOT /

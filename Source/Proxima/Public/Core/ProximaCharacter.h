@@ -6,6 +6,8 @@
 #include "Camera/CameraComponent.h"
 #include "ProximaCharacter.generated.h"
 
+class UAnimationAsset;
+
 UCLASS()
 class PROXIMA_API AProximaCharacter : public ACharacter
 {
@@ -48,6 +50,8 @@ public:
     void MoveRight(float Value);
     void ToggleInspectionView();
 
+    virtual void Tick(float DeltaSeconds) override;
+
 protected:
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 
@@ -58,6 +62,18 @@ protected:
     TObjectPtr<UCameraComponent> Camera = nullptr;
 
 private:
+    UPROPERTY()
+    TObjectPtr<UAnimationAsset> IdleAnimation = nullptr;
+
+    UPROPERTY()
+    TObjectPtr<UAnimationAsset> WalkAnimation = nullptr;
+
+    UPROPERTY()
+    TObjectPtr<UAnimationAsset> RunAnimation = nullptr;
+
+    /** 0 idle, 1 walk, 2 run. 255 forces initial animation selection. */
+    uint8 CurrentAnimationState = 255;
+
     bool bSprintRequested = false;
     bool bInspectionView = false;
 
