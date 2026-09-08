@@ -32,6 +32,36 @@ bool FProximaCameraMathTest::RunTest(const FString& Parameters)
         FMath::IsNearlyEqual(AProximaBuildCamera::NormalizeYaw(-10.0f), 350.0f, 0.001f));
 
     TestTrue(
+        TEXT("Pitch clamps to overhead limit"),
+        FMath::IsNearlyEqual(
+            AProximaBuildCamera::ClampPitch(
+                -100.0f,
+                -85.0f,
+                -15.0f),
+            -85.0f,
+            0.001f));
+
+    TestTrue(
+        TEXT("Pitch clamps to shallow-angle limit"),
+        FMath::IsNearlyEqual(
+            AProximaBuildCamera::ClampPitch(
+                10.0f,
+                -85.0f,
+                -15.0f),
+            -15.0f,
+            0.001f));
+
+    TestTrue(
+        TEXT("Pitch preserves normal build-camera angle"),
+        FMath::IsNearlyEqual(
+            AProximaBuildCamera::ClampPitch(
+                -55.0f,
+                -85.0f,
+                -15.0f),
+            -55.0f,
+            0.001f));
+
+    TestTrue(
         TEXT("Zoom clamps to maximum"),
         FMath::IsNearlyEqual(AProximaBuildCamera::ClampZoomDistance(3500.0f, 200.0f, 3000.0f), 3000.0f));
     TestTrue(

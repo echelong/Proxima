@@ -23,6 +23,10 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Proxima|BuildCamera")
     void RotateYaw(float DeltaDegrees);
 
+    /** Apply a clamped vertical orbit delta in degrees. */
+    UFUNCTION(BlueprintCallable, Category = "Proxima|BuildCamera")
+    void RotatePitch(float DeltaDegrees);
+
     /** Change camera-arm distance. Positive values pull back. */
     UFUNCTION(BlueprintCallable, Category = "Proxima|BuildCamera")
     void Zoom(float DeltaCm);
@@ -37,6 +41,12 @@ public:
     float DefaultPitch = -55.0f;
 
     UPROPERTY(EditDefaultsOnly, Category = "Proxima|BuildCamera")
+    float MinPitch = -85.0f;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Proxima|BuildCamera")
+    float MaxPitch = -15.0f;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Proxima|BuildCamera")
     float DefaultDistance = 1800.0f;
 
     FVector GetForward() const;
@@ -45,8 +55,14 @@ public:
     UFUNCTION(BlueprintPure, Category = "Proxima|BuildCamera")
     float GetYaw() const { return YawDegrees; }
 
+    UFUNCTION(BlueprintPure, Category = "Proxima|BuildCamera")
+    float GetPitch() const { return PitchDegrees; }
+
     UFUNCTION(BlueprintCallable, Category = "Proxima|BuildCamera")
     void SetYaw(float NewYaw);
+
+    UFUNCTION(BlueprintCallable, Category = "Proxima|BuildCamera")
+    void SetPitch(float NewPitch);
 
     UFUNCTION(BlueprintCallable, Category = "Proxima|BuildCamera")
     void InitializeOverPoint(const FVector& WorldPoint);
@@ -61,6 +77,10 @@ public:
     static FVector HorizontalForwardFromYaw(float YawDegrees);
     static FVector HorizontalRightFromYaw(float YawDegrees);
     static float NormalizeYaw(float YawDegrees);
+    static float ClampPitch(
+        float PitchDegrees,
+        float MinPitchDegrees,
+        float MaxPitchDegrees);
     static float ClampZoomDistance(float DistanceCm, float MinDistanceCm, float MaxDistanceCm);
 
 private:
@@ -74,6 +94,7 @@ private:
     TObjectPtr<UCameraComponent> Cam = nullptr;
 
     float YawDegrees = 0.0f;
+    float PitchDegrees = -55.0f;
 
     void UpdateCameraTransform();
 };

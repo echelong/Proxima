@@ -17,7 +17,12 @@ AProximaBuildCamera::AProximaBuildCamera()
     Arm->bDoCollisionTest = false;
     Arm->bEnableCameraLag = true;
     Arm->CameraLagSpeed = 6.0f;
-    Arm->SetRelativeRotation(FRotator(DefaultPitch, 0.0f, 0.0f));
+    PitchDegrees = ClampPitch(
+        DefaultPitch,
+        MinPitch,
+        MaxPitch);
+    Arm->SetRelativeRotation(
+        FRotator(PitchDegrees, 0.0f, 0.0f));
 
     Cam = CreateDefaultSubobject<UCameraComponent>(TEXT("Cam"));
     Cam->SetupAttachment(Arm, USpringArmComponent::SocketName);
@@ -44,6 +49,27 @@ float AProximaBuildCamera::NormalizeYaw(float InYawDegrees)
     return Result;
 }
 
+float AProximaBuildCamera::ClampPitch(
+    float PitchDegrees,
+    float MinPitchDegrees,
+    float MaxPitchDegrees)
+{
+    const float Lower =
+        FMath::Min(
+            MinPitchDegrees,
+            MaxPitchDegrees);
+
+    const float Upper =
+        FMath::Max(
+            MinPitchDegrees,
+            MaxPitchDegrees);
+
+    return FMath::Clamp(
+        PitchDegrees,
+        Lower,
+        Upper);
+}
+
 float AProximaBuildCamera::ClampZoomDistance(float DistanceCm, float MinDistanceCm, float MaxDistanceCm)
 {
     return FMath::Clamp(DistanceCm, MinDistanceCm, MaxDistanceCm);
@@ -65,6 +91,16 @@ void AProximaBuildCamera::SetYaw(float NewYaw)
     UpdateCameraTransform();
 }
 
+void AProximaBuildCamera::SetPitch(float NewPitch)
+{
+    PitchDegrees = ClampPitch(
+        NewPitch,
+        MinPitch,
+        MaxPitch);
+
+    UpdateCameraTransform();
+}
+
 void AProximaBuildCamera::Pan(const FVector2D& DeltaCm)
 {
     if (!Pivot)
@@ -79,6 +115,11 @@ void AProximaBuildCamera::Pan(const FVector2D& DeltaCm)
 void AProximaBuildCamera::RotateYaw(float DeltaDegrees)
 {
     SetYaw(YawDegrees + DeltaDegrees);
+}
+
+void AProximaBuildCamera::RotatePitch(float DeltaDegrees)
+{
+    SetPitch(PitchDegrees + DeltaDegrees);
 }
 
 void AProximaBuildCamera::Zoom(float DeltaCm)
@@ -102,6 +143,11 @@ void AProximaBuildCamera::InitializeOverPoint(const FVector& WorldPoint)
     }
 
     YawDegrees = 0.0f;
+    PitchDegrees = ClampPitch(
+        DefaultPitch,
+        MinPitch,
+        MaxPitch);
+
     if (Arm)
     {
         Arm->TargetArmLength = ClampZoomDistance(DefaultDistance, MinZoom, MaxZoom);
@@ -114,6 +160,7 @@ void AProximaBuildCamera::UpdateCameraTransform()
     SetActorRotation(FRotator(0.0f, YawDegrees, 0.0f));
     if (Arm)
     {
-        Arm->SetRelativeRotation(FRotator(DefaultPitch, 0.0f, 0.0f));
+        Arm->SetRelativeRotation(
+            FRotator(PitchDegrees, 0.0f, 0.0f));
     }
 }

@@ -148,7 +148,20 @@ void AProximaPlayerController::HandleTurn(float Value)
     if (!IsBuildModeActive()) { AddYawInput(Value); }
     else if (bBuildCameraRotateHeld && BuildCameraActor) { BuildCameraActor->RotateYaw(Value * BuildCameraRotateSpeed); }
 }
-void AProximaPlayerController::HandleLookUp(float Value) { if (!IsBuildModeActive()) { AddPitchInput(Value); } }
+void AProximaPlayerController::HandleLookUp(float Value)
+{
+    if (!IsBuildModeActive())
+    {
+        AddPitchInput(Value);
+    }
+    else if (
+        bBuildCameraRotateHeld &&
+        BuildCameraActor)
+    {
+        BuildCameraActor->RotatePitch(
+            Value * BuildCameraRotateSpeed);
+    }
+}
 void AProximaPlayerController::HandleSprintPressed()
 {
     if (!IsBuildModeActive()) { if (AProximaCharacter* C = Cast<AProximaCharacter>(GetPawn())) { C->StartSprintBP(); } }
