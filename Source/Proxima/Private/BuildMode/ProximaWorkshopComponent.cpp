@@ -6,6 +6,7 @@
 #include "BuildMode/ProximaRuntimeRoomFloor.h"
 #include "BuildMode/ProximaWallPreview.h"
 #include "BuildMode/ProximaWallPlacementSession.h"
+#include "BuildMode/ProximaWallSnapping.h"
 #include "Building/ProximaBuildingManager.h"
 #include "Building/ProximaGeometryKernel.h"
 #include "Building/ProximaRoomBuilder.h"
@@ -99,18 +100,44 @@ bool UProximaWorkshopComponent::CursorOnPlane(FVector2D& Out) const
     Out = FVector2D(Hit.X, Hit.Y);
     return ProximaGeometry::Finite({Out.X, Out.Y}) && FMath::Abs(Out.X) <= 100000.0 && FMath::Abs(Out.Y) <= 100000.0;
 }
-FVector2D UProximaWorkshopComponent::Snap(const FVector2D& Point) const
+FVector2D UProximaWorkshopComponent::Snap(
+    const FVector2D& Point,
+    bool bApplyGridFallback) const
 {
     TArray<FVector2D> Endpoints;
+
     if (Model())
     {
-        for (const FProximaWallData& W : Model()->GetWallsView())
+        for (const FProximaWallData& W :
+             Model()->GetWallsView())
         {
-            Endpoints.Add(W.StartPoint.ToVector2D()); Endpoints.Add(W.EndPoint.ToVector2D());
+            Endpoints.Add(
+                W.StartPoint.ToVector2D());
+
+            Endpoints.Add(
+                W.EndPoint.ToVector2D());
         }
     }
-    Session->GridSnapCm = GridCm;
-    return Session->SnapEndpoint(Point, Endpoints, 12.0f);
+
+    Session->GridSnapCm =
+        GridCm;
+
+    FVector2D Endpoint;
+
+    if (UProximaWallSnapping::FindNearestEndpoint(
+            Point,
+            Endpoints,
+            12.0f,
+            Endpoint))
+    {
+        return Endpoint;
+    }
+
+    return bApplyGridFallback
+        ? UProximaWallSnapping::SnapPointToGrid(
+            Point,
+            GridCm)
+        : Point;
 }
 void UProximaWorkshopComponent::RectangleBounds(FVector2D& Min, FVector2D& Max) const
 {
@@ -153,23 +180,190 @@ void UProximaWorkshopComponent::UpdatePreview()
     Cursor = Snap(Raw);
     if (Tool == EProximaBuildTool::Wall && Session->GetState() == EProximaPlacementState::Previewing)
     {
-        FVector2D End = Cursor;
-        FVector2D Delta = End - Session->StartPointCm;
-        if (bAngleLock && !Delta.IsNearlyZero())
+        /*
+         * Apply direction constraints before endpoint snapping. This prevents
+         * angle lock from moving an endpoint away after it was already snapped.
+         */
+        FVector2D End =
+            UProximaWallSnapping::SnapPointToGrid(
+                Raw,
+                GridCm);
+
+        FVector2D Delta =
+            End -
+            Session->StartPointCm;
+
+        if (bAngleLock &&
+            !Delta.IsNearlyZero())
         {
-            const double Angle = FMath::GridSnap(FMath::Atan2(Delta.Y, Delta.X), PI / 4.0);
-            End = Session->StartPointCm + FVector2D(FMath::Cos(Angle), FMath::Sin(Angle)) * Delta.Size();
+            const double Angle =
+                FMath::GridSnap(
+                    FMath::Atan2(
+                        Delta.Y,
+                        Delta.X),
+                    PI / 4.0);
+
+            End =
+                Session->StartPointCm +
+                FVector2D(
+                    FMath::Cos(Angle),
+                    FMath::Sin(Angle)) *
+                Delta.Size();
         }
-        if (ExactLengthCm > 0.0f) { End = UProximaExactLength::ResolveEndpointByLength(Session->StartPointCm, End - Session->StartPointCm, ExactLengthCm); }
+
+        if (ExactLengthCm > 0.0f)
+        {
+            End =
+                UProximaExactLength::
+                    ResolveEndpointByLength(
+                        Session->StartPointCm,
+                        End -
+                            Session->StartPointCm,
+                        ExactLengthCm);
+        }
+
+        bool bRectangleAssist =
+            false;
+
+        bool bRectangleCornerReady =
+            false;
+
+        /*
+         * Freehand third wall of a rectangle: once A->B and B->C form a
+         * right angle, C->D follows the reverse A->B direction and cannot
+         * become longer than wall 1.
+         *
+         * Explicit Exact Length remains authoritative.
+         */
+        if (ExactLengthCm <= 0.0f)
+        {
+            FVector2D AssistedEndpoint;
+
+            if (Session->
+                    TryResolveRectangleThirdWall(
+                        End,
+                        AssistedEndpoint,
+                        bRectangleCornerReady))
+            {
+                End =
+                    AssistedEndpoint;
+
+                bRectangleAssist =
+                    true;
+            }
+        }
+
+        /*
+         * For ordinary walls, restore exact existing-endpoint snapping after
+         * angle/length constraints. Rectangle assist keeps its calculated cap.
+         */
+        if (!bRectangleAssist)
+        {
+            End =
+                Snap(
+                    End,
+                    false);
+        }
+
+        bool bClosureReady =
+            false;
+
+        /*
+         * Room closure deliberately gets a larger target than ordinary
+         * endpoint snapping. This is evaluated from the raw cursor so a tiny
+         * mouse error cannot prevent closing an otherwise exact rectangle.
+         */
+        if (ExactLengthCm <= 0.0f)
+        {
+            FVector2D ClosureEndpoint;
+
+            const float ClosureToleranceCm =
+                FMath::Max(
+                    35.0f,
+                    GridCm * 2.0f);
+
+            if (Session->TrySnapToChainStart(
+                    Raw,
+                    ClosureToleranceCm,
+                    ClosureEndpoint))
+            {
+                End =
+                    ClosureEndpoint;
+
+                bClosureReady =
+                    true;
+            }
+        }
+
         FProximaWallData Candidate;
+
         // A non-persistent sentinel ID is sufficient for preview validation.
-        Candidate.WallId.Id.Value = FGuid(1, 0, 0, 1);
-        Candidate.StartPoint.XCm = Session->StartPointCm.X; Candidate.StartPoint.YCm = Session->StartPointCm.Y;
-        Candidate.EndPoint.XCm = End.X; Candidate.EndPoint.YCm = End.Y;
-        Candidate.HeightCm = HeightCm; Candidate.ThicknessCm = ThicknessCm;
-        Session->UpdateEndpoint(Raw, End, Model()->HasEquivalentWallGeometry(Candidate) || !Candidate.IsValid());
-        bPreviewValid = Session->bCanConfirm;
-        if (!Candidate.IsDegenerate()) { ShowPreview(0, Session->StartPointCm, End, HeightCm, ThicknessCm, 0.0f, bPreviewValid); }
+        Candidate.WallId.Id.Value =
+            FGuid(
+                1,
+                0,
+                0,
+                1);
+
+        Candidate.StartPoint.XCm =
+            Session->StartPointCm.X;
+
+        Candidate.StartPoint.YCm =
+            Session->StartPointCm.Y;
+
+        Candidate.EndPoint.XCm =
+            End.X;
+
+        Candidate.EndPoint.YCm =
+            End.Y;
+
+        Candidate.HeightCm =
+            HeightCm;
+
+        Candidate.ThicknessCm =
+            ThicknessCm;
+
+        Session->UpdateEndpoint(
+            Raw,
+            End,
+            Model()->HasEquivalentWallGeometry(
+                Candidate) ||
+            !Candidate.IsValid());
+
+        bPreviewValid =
+            Session->bCanConfirm;
+
+        if (!Candidate.IsDegenerate())
+        {
+            ShowPreview(
+                0,
+                Session->StartPointCm,
+                End,
+                HeightCm,
+                ThicknessCm,
+                0.0f,
+                bPreviewValid);
+
+            if (bPreviewValid &&
+                Previews.IsValidIndex(0))
+            {
+                if (bClosureReady)
+                {
+                    // Gold = click now to close the room.
+                    Previews[0]->SetCue(
+                        EProximaWallPreviewCue::
+                            Closure);
+                }
+                else if (
+                    bRectangleCornerReady)
+                {
+                    // Blue = third side has reached the matching corner.
+                    Previews[0]->SetCue(
+                        EProximaWallPreviewCue::
+                            RectangleCorner);
+                }
+            }
+        }
     }
     else if (Tool == EProximaBuildTool::Door || Tool == EProximaBuildTool::Window)
     {

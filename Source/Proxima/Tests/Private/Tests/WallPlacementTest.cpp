@@ -153,6 +153,109 @@ bool FProximaWallSessionErgonomicsTest::RunTest(const FString& Parameters)
     Session->UpdateEndpoint(FVector2D(0.0f, 0.0f), FVector2D(0.0f, 0.0f));
     TestTrue(TEXT("Exact-zero wall: bCanConfirm is false"), Session->bCanConfirm == false);
 
+    /*
+     * Continuous rectangle chain:
+     *
+     * A ---- B
+     *        |
+     *        C
+     *
+     * Third wall should travel left toward D and stop at the A/B span.
+     */
+    const FVector2D A(0.0f, 0.0f);
+    const FVector2D B(600.0f, 0.0f);
+    const FVector2D C(600.0f, 400.0f);
+    const FVector2D D(0.0f, 400.0f);
+
+    Session->BeginPlacement();
+    Session->ConfirmStart(A);
+
+    Session->UpdateEndpoint(B, B);
+    Session->ContinueFromCurrentEndpoint();
+
+    Session->UpdateEndpoint(C, C);
+    Session->ContinueFromCurrentEndpoint();
+
+    TestEqual(
+        TEXT("Two completed rectangle walls preserve A B C"),
+        Session->GetChainPoints().Num(),
+        3);
+
+    FVector2D Assisted;
+    bool bAtLimit = false;
+
+    TestTrue(
+        TEXT("Third rectangle wall receives rectangle assistance"),
+        Session->TryResolveRectangleThirdWall(
+            FVector2D(-200.0f, 400.0f),
+            Assisted,
+            bAtLimit));
+
+    TestTrue(
+        TEXT("Third rectangle wall cannot overshoot first wall"),
+        Assisted.Equals(
+            D,
+            0.001f));
+
+    TestTrue(
+        TEXT("Rectangle assist reports matching corner"),
+        bAtLimit);
+
+    TestTrue(
+        TEXT("Short third wall remains shorter than first wall"),
+        Session->TryResolveRectangleThirdWall(
+            FVector2D(300.0f, 400.0f),
+            Assisted,
+            bAtLimit) &&
+        Assisted.Equals(
+            FVector2D(300.0f, 400.0f),
+            0.001f) &&
+        !bAtLimit);
+
+    TestFalse(
+        TEXT("Rectangle assist ignores wrong third-wall direction"),
+        Session->TryResolveRectangleThirdWall(
+            FVector2D(600.0f, 100.0f),
+            Assisted,
+            bAtLimit));
+
+    Session->UpdateEndpoint(D, D);
+    Session->ContinueFromCurrentEndpoint();
+
+    TestEqual(
+        TEXT("Three completed rectangle walls preserve A B C D"),
+        Session->GetChainPoints().Num(),
+        4);
+
+    FVector2D Closure;
+
+    TestTrue(
+        TEXT("Final wall gets stronger snap to chain start"),
+        Session->TrySnapToChainStart(
+            FVector2D(20.0f, 15.0f),
+            35.0f,
+            Closure));
+
+    TestTrue(
+        TEXT("Closure snap resolves exactly to A"),
+        Closure.Equals(
+            A,
+            0.001f));
+
+    Session->UpdateEndpoint(A, A);
+    Session->ContinueFromCurrentEndpoint();
+
+    TestEqual(
+        TEXT("Closed room starts a fresh wall chain"),
+        Session->GetChainPoints().Num(),
+        1);
+
+    TestTrue(
+        TEXT("Fresh chain restarts at closed room corner"),
+        Session->GetChainPoints()[0].Equals(
+            A,
+            0.001f));
+
     return true;
 }
 

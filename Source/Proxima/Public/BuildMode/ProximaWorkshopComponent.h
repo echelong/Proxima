@@ -60,7 +60,7 @@ public:
     float OpeningHeightCm = 210.0f;
     float SillCm = 90.0f;
     float GridCm = 10.0f;
-    bool bAngleLock = false;
+    bool bAngleLock = true;
     bool bShowRoofs = false;
 
 private:
@@ -75,7 +75,9 @@ private:
     bool CursorOnPlane(FVector2D& Out) const;
     bool FindWallAtCursor(FProximaWallData& OutWall, float& Along) const;
     bool MakeOpening(FProximaWallData& Wall, FProximaOpeningData& Opening) const;
-    FVector2D Snap(const FVector2D& Point) const;
+    FVector2D Snap(
+        const FVector2D& Point,
+        bool bApplyGridFallback = true) const;
     void RectangleBounds(FVector2D& Min, FVector2D& Max) const;
     bool CommitModel(const TArray<FProximaWallData>& Walls, const TArray<FProximaSlabData>& Slabs);
     void CommitRectangle();

@@ -55,6 +55,43 @@ void AProximaWallPreview::BeginPlay()
 }
 void AProximaWallPreview::SetValid(bool bValue)
 {
-    if (PreviewMaterial) { PreviewMaterial->SetVectorParameterValue(TEXT("Tint"),
-        bValue ? FLinearColor(0.05f, 0.8f, 0.5f) : FLinearColor(1.0f, 0.08f, 0.035f)); }
+    if (PreviewMaterial)
+    {
+        PreviewMaterial->SetVectorParameterValue(
+            TEXT("Tint"),
+            bValue
+                ? FLinearColor(
+                    0.05f,
+                    0.8f,
+                    0.5f)
+                : FLinearColor(
+                    1.0f,
+                    0.08f,
+                    0.035f));
+    }
+}
+
+void AProximaWallPreview::SetCue(
+    EProximaWallPreviewCue Cue)
+{
+    if (!PreviewMaterial)
+    {
+        return;
+    }
+
+    const FLinearColor Tint =
+        Cue ==
+            EProximaWallPreviewCue::Closure
+        ? FLinearColor(
+            1.0f,
+            0.68f,
+            0.05f)
+        : FLinearColor(
+            0.05f,
+            0.55f,
+            1.0f);
+
+    PreviewMaterial->SetVectorParameterValue(
+        TEXT("Tint"),
+        Tint);
 }

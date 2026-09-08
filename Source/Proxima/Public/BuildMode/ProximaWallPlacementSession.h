@@ -22,6 +22,26 @@ public:
     void CancelPlacement();
     void ConfirmStart(const FVector2D& StartCm);
     void ContinueFromCurrentEndpoint();
+
+    /**
+     * During A->B->C->D rectangle drawing, constrains the third wall C->D
+     * along the reverse direction of A->B and prevents it exceeding A->B.
+     */
+    bool TryResolveRectangleThirdWall(
+        const FVector2D& CandidateCm,
+        FVector2D& OutEndpointCm,
+        bool& bOutAtLimit,
+        float DirectionDotThreshold = 0.98f) const;
+
+    /**
+     * Gives a nearly closed wall chain a stronger snap back to its first
+     * point. Used after three or more completed walls.
+     */
+    bool TrySnapToChainStart(
+        const FVector2D& CandidateCm,
+        float ToleranceCm,
+        FVector2D& OutEndpointCm) const;
+
     void UpdateEndpoint(const FVector2D& CandidateCm, const FVector2D& SnappedCm, bool bDuplicateGeometry = false);
 
     bool IsActive() const { return CurrentState != EProximaPlacementState::Inactive; }
@@ -38,6 +58,18 @@ public:
 
     UPROPERTY(BlueprintReadOnly, Category="Proxima|Placement")
     bool bCanConfirm = false;
+
+    /**
+     * Points committed during the current continuous wall-drawing gesture.
+     * Example rectangle after two walls: [A, B, C].
+     */
+    UPROPERTY(BlueprintReadOnly, Category="Proxima|Placement")
+    TArray<FVector2D> ChainPointsCm;
+
+    const TArray<FVector2D>& GetChainPoints() const
+    {
+        return ChainPointsCm;
+    }
 
     /** Current wall length in metres (centimetres → metres for display). Updated by UpdateEndpoint. */
     UPROPERTY(BlueprintReadOnly, Category="Proxima|Placement")
