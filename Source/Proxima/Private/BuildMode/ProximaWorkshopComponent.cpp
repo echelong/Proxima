@@ -178,7 +178,47 @@ void UProximaWorkshopComponent::UpdatePreview()
     if (!CursorOnPlane(Raw)) { return; }
     bCursorValid = true;
     Cursor = Snap(Raw);
-    if (Tool == EProximaBuildTool::Wall && Session->GetState() == EProximaPlacementState::Previewing)
+    if (Tool == EProximaBuildTool::Wall &&
+        Session->GetState() ==
+            EProximaPlacementState::ChoosingStart)
+    {
+        TArray<FVector2D> ExistingChain;
+
+        if (FProximaWallTopology::BuildOpenChainEndingAt(
+                Model()->GetWallsView(),
+                Cursor,
+                ExistingChain,
+                0.1f))
+        {
+            constexpr float GripSizeCm =
+                24.0f;
+
+            ShowPreview(
+                0,
+                Cursor -
+                    FVector2D(
+                        GripSizeCm * 0.5f,
+                        0.0f),
+                Cursor +
+                    FVector2D(
+                        GripSizeCm * 0.5f,
+                        0.0f),
+                GripSizeCm,
+                GripSizeCm,
+                0.0f,
+                true);
+
+            if (Previews.IsValidIndex(0))
+            {
+                Previews[0]->SetCue(
+                    EProximaWallPreviewCue::Resume);
+            }
+        }
+    }
+    else if (
+        Tool == EProximaBuildTool::Wall &&
+        Session->GetState() ==
+            EProximaPlacementState::Previewing)
     {
         /*
          * Apply direction constraints before endpoint snapping. This prevents
@@ -361,6 +401,12 @@ void UProximaWorkshopComponent::UpdatePreview()
                     Previews[0]->SetCue(
                         EProximaWallPreviewCue::
                             RectangleCorner);
+
+                    Status =
+                        TEXT(
+                            "BLUE: rectangle side matched. "
+                            "Press C to close automatically, "
+                            "or click to place wall 3.");
                 }
             }
         }
@@ -467,6 +513,231 @@ bool UProximaWorkshopComponent::MakeOpening(FProximaWallData& Wall, FProximaOpen
     return Candidate.IsValid();
 }
 
+void UProximaWorkshopComponent::CompleteRectangleShortcut()
+{
+    if (!bActive ||
+        Tool != EProximaBuildTool::Wall ||
+        !Session ||
+        !Model())
+    {
+        return;
+    }
+
+    FVector2D MatchedCorner;
+    FVector2D ClosureTarget;
+
+    if (!Session->TryGetRectangleAutoClose(
+            MatchedCorner,
+            ClosureTarget))
+    {
+        Status =
+            TEXT(
+                "C auto-close is available when wall 3 "
+                "reaches the blue matched-length state.");
+        return;
+    }
+
+    const TArray<FVector2D>& Chain =
+        Session->GetChainPoints();
+
+    if (Chain.Num() != 3)
+    {
+        return;
+    }
+
+    const FVector2D A =
+        Chain[0];
+
+    const FVector2D B =
+        Chain[1];
+
+    const FVector2D C =
+        Chain[2];
+
+    FProximaWallData ThirdWall;
+
+    ThirdWall.WallId.Id =
+        FProximaID::NewId();
+
+    ThirdWall.StartPoint.XCm =
+        C.X;
+
+    ThirdWall.StartPoint.YCm =
+        C.Y;
+
+    ThirdWall.EndPoint.XCm =
+        MatchedCorner.X;
+
+    ThirdWall.EndPoint.YCm =
+        MatchedCorner.Y;
+
+    ThirdWall.HeightCm =
+        HeightCm;
+
+    ThirdWall.ThicknessCm =
+        ThicknessCm;
+
+    ThirdWall.SideAMaterial.Value =
+        Finish;
+
+    FProximaWallData ClosingWall;
+
+    ClosingWall.WallId.Id =
+        FProximaID::NewId();
+
+    ClosingWall.StartPoint.XCm =
+        MatchedCorner.X;
+
+    ClosingWall.StartPoint.YCm =
+        MatchedCorner.Y;
+
+    ClosingWall.EndPoint.XCm =
+        ClosureTarget.X;
+
+    ClosingWall.EndPoint.YCm =
+        ClosureTarget.Y;
+
+    ClosingWall.HeightCm =
+        HeightCm;
+
+    ClosingWall.ThicknessCm =
+        ThicknessCm;
+
+    ClosingWall.SideAMaterial.Value =
+        Finish;
+
+    /*
+     * Preserve building/floor scope from existing wall B-C.
+     * This also prepares the shortcut for the upcoming multi-storey system.
+     */
+    const auto MatchesSegment =
+        [](const FProximaWallData& Wall,
+           const FVector2D& P,
+           const FVector2D& Q)
+        {
+            const FVector2D Start =
+                Wall.StartPoint.ToVector2D();
+
+            const FVector2D End =
+                Wall.EndPoint.ToVector2D();
+
+            constexpr float ToleranceCm =
+                0.1f;
+
+            return
+                (
+                    Start.Equals(
+                        P,
+                        ToleranceCm) &&
+                    End.Equals(
+                        Q,
+                        ToleranceCm)
+                ) ||
+                (
+                    Start.Equals(
+                        Q,
+                        ToleranceCm) &&
+                    End.Equals(
+                        P,
+                        ToleranceCm)
+                );
+        };
+
+    for (const FProximaWallData& Existing :
+         Model()->GetWallsView())
+    {
+        if (!MatchesSegment(
+                Existing,
+                B,
+                C))
+        {
+            continue;
+        }
+
+        ThirdWall.BuildingId =
+            Existing.BuildingId;
+
+        ThirdWall.FloorId =
+            Existing.FloorId;
+
+        ClosingWall.BuildingId =
+            Existing.BuildingId;
+
+        ClosingWall.FloorId =
+            Existing.FloorId;
+
+        break;
+    }
+
+    TArray<FProximaWallData> AfterThird;
+    FString ThirdError;
+
+    if (!FProximaWallTopology::InsertWall(
+            Model()->GetWallsView(),
+            ThirdWall,
+            AfterThird,
+            &ThirdError))
+    {
+        Status =
+            ThirdError.IsEmpty()
+                ? TEXT(
+                    "Automatic wall 3 creation failed. "
+                    "The model was unchanged.")
+                : ThirdError;
+        return;
+    }
+
+    TArray<FProximaWallData> ClosedWalls;
+    FString ClosingError;
+
+    if (!FProximaWallTopology::InsertWall(
+            AfterThird,
+            ClosingWall,
+            ClosedWalls,
+            &ClosingError))
+    {
+        Status =
+            ClosingError.IsEmpty()
+                ? TEXT(
+                    "Automatic closing wall failed. "
+                    "The model was unchanged.")
+                : ClosingError;
+        return;
+    }
+
+    /*
+     * One model command contains BOTH missing sides.
+     * Ctrl+Z therefore removes walls 3 and 4 together.
+     */
+    if (!CommitModel(
+            ClosedWalls,
+            Model()->GetSlabsView()))
+    {
+        Status =
+            TEXT(
+                "Automatic rectangle failed model validation. "
+                "No changes were made.");
+        return;
+    }
+
+    Cancel();
+
+    Status =
+        FString::Printf(
+            TEXT(
+                "Rectangle closed automatically with C: "
+                "%.2f x %.2f m. "
+                "Walls 3 and 4 are one undo step."),
+            FVector2D::Distance(
+                A,
+                B) /
+                100.0f,
+            FVector2D::Distance(
+                B,
+                C) /
+                100.0f);
+}
+
 void UProximaWorkshopComponent::PrimaryAction()
 {
     if (!bActive || IsPointerOverPanel() || Controller()->IsRotatingBuildCamera()) { return; }
@@ -477,9 +748,40 @@ void UProximaWorkshopComponent::PrimaryAction()
     if (!Commands) { return; }
     if (Tool == EProximaBuildTool::Wall)
     {
-        if (Session->GetState() == EProximaPlacementState::ChoosingStart)
+        if (Session->GetState() ==
+            EProximaPlacementState::ChoosingStart)
         {
-            Session->ConfirmStart(Cursor);
+            TArray<FVector2D> ExistingChain;
+
+            if (FProximaWallTopology::BuildOpenChainEndingAt(
+                    Model()->GetWallsView(),
+                    Cursor,
+                    ExistingChain,
+                    0.1f) &&
+                Session->ResumeFromExistingChain(
+                    ExistingChain))
+            {
+                Status =
+                    FString::Printf(
+                        TEXT(
+                            "Wall chain resumed: %d existing wall%s. "
+                            "Continue drawing."),
+                        ExistingChain.Num() - 1,
+                        ExistingChain.Num() == 2
+                            ? TEXT("")
+                            : TEXT("s"));
+            }
+            else
+            {
+                Session->ConfirmStart(
+                    Cursor);
+
+                Status =
+                    TEXT(
+                        "Wall start placed. Move the cursor "
+                        "and click to build.");
+            }
+
             return;
         }
         if (!bPreviewValid) { Status = TEXT("Choose a valid endpoint. Duplicate walls are rejected."); return; }

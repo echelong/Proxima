@@ -9,7 +9,8 @@ class UStaticMeshComponent;
 enum class EProximaWallPreviewCue : uint8
 {
     RectangleCorner,
-    Closure
+    Closure,
+    Resume
 };
 
 UCLASS()

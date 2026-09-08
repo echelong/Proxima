@@ -43,6 +43,7 @@ private:
     void ActivateBuildCamera();
     void DeactivateBuildCamera();
     void HandlePrimary();
+    void HandleCloseRectangle();
     void HandleCancel();
     void HandleUndo();
     void HandleRedo();

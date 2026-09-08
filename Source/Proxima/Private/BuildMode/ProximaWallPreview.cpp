@@ -79,17 +79,38 @@ void AProximaWallPreview::SetCue(
         return;
     }
 
-    const FLinearColor Tint =
-        Cue ==
-            EProximaWallPreviewCue::Closure
-        ? FLinearColor(
-            1.0f,
-            0.68f,
-            0.05f)
-        : FLinearColor(
-            0.05f,
-            0.55f,
-            1.0f);
+    FLinearColor Tint;
+
+    switch (Cue)
+    {
+    case EProximaWallPreviewCue::Closure:
+        // Gold: click now to close.
+        Tint =
+            FLinearColor(
+                1.0f,
+                0.68f,
+                0.05f);
+        break;
+
+    case EProximaWallPreviewCue::Resume:
+        // Cyan: this existing endpoint can be grabbed.
+        Tint =
+            FLinearColor(
+                0.05f,
+                0.9f,
+                1.0f);
+        break;
+
+    case EProximaWallPreviewCue::RectangleCorner:
+    default:
+        // Blue: third rectangle side matches wall 1.
+        Tint =
+            FLinearColor(
+                0.05f,
+                0.55f,
+                1.0f);
+        break;
+    }
 
     PreviewMaterial->SetVectorParameterValue(
         TEXT("Tint"),

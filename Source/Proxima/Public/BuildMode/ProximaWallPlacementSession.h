@@ -21,6 +21,11 @@ public:
     void BeginPlacement();
     void CancelPlacement();
     void ConfirmStart(const FVector2D& StartCm);
+
+    /** Resume drawing from an ordered existing open wall chain. */
+    bool ResumeFromExistingChain(
+        const TArray<FVector2D>& OrderedPointsCm);
+
     void ContinueFromCurrentEndpoint();
 
     /**
@@ -41,6 +46,14 @@ public:
         const FVector2D& CandidateCm,
         float ToleranceCm,
         FVector2D& OutEndpointCm) const;
+
+    /**
+     * True only while the third rectangle wall is at its blue
+     * matched-length position and can be auto-closed.
+     */
+    bool TryGetRectangleAutoClose(
+        FVector2D& OutMatchedCornerCm,
+        FVector2D& OutClosureTargetCm) const;
 
     void UpdateEndpoint(const FVector2D& CandidateCm, const FVector2D& SnappedCm, bool bDuplicateGeometry = false);
 

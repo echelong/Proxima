@@ -220,6 +220,28 @@ bool FProximaWallSessionErgonomicsTest::RunTest(const FString& Parameters)
             bAtLimit));
 
     Session->UpdateEndpoint(D, D);
+
+    FVector2D AutoCorner;
+    FVector2D AutoClosure;
+
+    TestTrue(
+        TEXT("Blue third wall exposes C auto-close"),
+        Session->TryGetRectangleAutoClose(
+            AutoCorner,
+            AutoClosure));
+
+    TestTrue(
+        TEXT("C auto-close matched corner is D"),
+        AutoCorner.Equals(
+            D,
+            0.001f));
+
+    TestTrue(
+        TEXT("C auto-close target is original A"),
+        AutoClosure.Equals(
+            A,
+            0.001f));
+
     Session->ContinueFromCurrentEndpoint();
 
     TestEqual(
@@ -253,6 +275,46 @@ bool FProximaWallSessionErgonomicsTest::RunTest(const FString& Parameters)
     TestTrue(
         TEXT("Fresh chain restarts at closed room corner"),
         Session->GetChainPoints()[0].Equals(
+            A,
+            0.001f));
+
+    Session->BeginPlacement();
+
+    const TArray<FVector2D> ExistingRectangleChain = {
+        A,
+        B,
+        C,
+        D
+    };
+
+    TestTrue(
+        TEXT("Interrupted rectangle chain resumes from D"),
+        Session->ResumeFromExistingChain(
+            ExistingRectangleChain));
+
+    TestTrue(
+        TEXT("Resumed session starts exactly at D"),
+        Session->StartPointCm.Equals(
+            D,
+            0.001f));
+
+    TestEqual(
+        TEXT("Resumed session restores four chain points"),
+        Session->GetChainPoints().Num(),
+        4);
+
+    TestTrue(
+        TEXT("Resumed chain restores closure targeting"),
+        Session->TrySnapToChainStart(
+            FVector2D(
+                15.0f,
+                12.0f),
+            35.0f,
+            Closure));
+
+    TestTrue(
+        TEXT("Resumed closure resolves exactly to A"),
+        Closure.Equals(
             A,
             0.001f));
 

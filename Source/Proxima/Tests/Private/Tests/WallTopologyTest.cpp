@@ -521,6 +521,121 @@ bool FProximaWallTopologyConnectionsTest::RunTest(
                     .ConnectedWalls.IsEmpty());
     }
 
+    {
+        const FVector2D A(
+            0.0f,
+            0.0f);
+
+        const FVector2D B(
+            600.0f,
+            0.0f);
+
+        const FVector2D C(
+            600.0f,
+            400.0f);
+
+        const FVector2D D(
+            0.0f,
+            400.0f);
+
+        TArray<FProximaWallData> OpenChain = {
+            MakeTopologyWall(
+                B.X,
+                B.Y,
+                A.X,
+                A.Y),
+            MakeTopologyWall(
+                B.X,
+                B.Y,
+                C.X,
+                C.Y),
+            MakeTopologyWall(
+                D.X,
+                D.Y,
+                C.X,
+                C.Y)
+        };
+
+        TArray<FVector2D> ChainPoints;
+
+        TestTrue(
+            TEXT(
+                "Open three-wall rectangle chain can be reconstructed"),
+            FProximaWallTopology::BuildOpenChainEndingAt(
+                OpenChain,
+                D,
+                ChainPoints));
+
+        TestEqual(
+            TEXT(
+                "Reconstructed chain contains A B C D"),
+            ChainPoints.Num(),
+            4);
+
+        if (ChainPoints.Num() == 4)
+        {
+            TestTrue(
+                TEXT("Reconstructed chain starts at A"),
+                ChainPoints[0].Equals(
+                    A,
+                    0.001f));
+
+            TestTrue(
+                TEXT("Reconstructed chain preserves B"),
+                ChainPoints[1].Equals(
+                    B,
+                    0.001f));
+
+            TestTrue(
+                TEXT("Reconstructed chain preserves C"),
+                ChainPoints[2].Equals(
+                    C,
+                    0.001f));
+
+            TestTrue(
+                TEXT("Reconstructed chain ends at D"),
+                ChainPoints[3].Equals(
+                    D,
+                    0.001f));
+        }
+
+        TArray<FProximaWallData> Branched =
+            OpenChain;
+
+        Branched.Add(
+            MakeTopologyWall(
+                C.X,
+                C.Y,
+                850.0f,
+                400.0f));
+
+        TestFalse(
+            TEXT(
+                "Resume does not guess through a branch"),
+            FProximaWallTopology::BuildOpenChainEndingAt(
+                Branched,
+                D,
+                ChainPoints));
+
+        TArray<FProximaWallData> Closed =
+            OpenChain;
+
+        Closed.Add(
+            MakeTopologyWall(
+                D.X,
+                D.Y,
+                A.X,
+                A.Y));
+
+        TestFalse(
+            TEXT(
+                "Closed room corner is not an open resume endpoint"),
+            FProximaWallTopology::BuildOpenChainEndingAt(
+                Closed,
+                D,
+                ChainPoints));
+    }
+
     return true;
 }
 

@@ -23,4 +23,16 @@ struct PROXIMA_API FProximaWallTopology
     static void RebuildConnections(
         TArray<FProximaWallData>& Walls,
         float ToleranceCm = 0.1f);
+
+    /**
+     * Reconstructs a simple open wall chain ending at EndpointCm.
+     *
+     * For A-B-C-D, clicking open endpoint D returns [A, B, C, D].
+     * Branches and closed loops are rejected rather than guessed through.
+     */
+    static bool BuildOpenChainEndingAt(
+        const TArray<FProximaWallData>& Walls,
+        const FVector2D& EndpointCm,
+        TArray<FVector2D>& OutPointsCm,
+        float ToleranceCm = 0.1f);
 };

@@ -31,6 +31,10 @@ public:
     void SetBuildModeActive(bool bValue);
     void UpdatePreview();
     void PrimaryAction();
+
+    /** C shortcut: when wall 3 is blue, build walls 3+4 atomically. */
+    void CompleteRectangleShortcut();
+
     void Cancel();
     void SelectTool(EProximaBuildTool Value);
     void DeleteSelection();

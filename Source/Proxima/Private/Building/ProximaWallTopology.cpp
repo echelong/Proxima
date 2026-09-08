@@ -330,6 +330,256 @@ bool SplitPersistentWall(
 
 }
 
+bool FProximaWallTopology::BuildOpenChainEndingAt(
+    const TArray<FProximaWallData>& Walls,
+    const FVector2D& EndpointCm,
+    TArray<FVector2D>& OutPointsCm,
+    float ToleranceCm)
+{
+    OutPointsCm.Reset();
+
+    if (Walls.IsEmpty() ||
+        !FMath::IsFinite(EndpointCm.X) ||
+        !FMath::IsFinite(EndpointCm.Y))
+    {
+        return false;
+    }
+
+    const double Tolerance =
+        FMath::Max(
+            0.0,
+            static_cast<double>(
+                ToleranceCm));
+
+    const Point Requested{
+        EndpointCm.X,
+        EndpointCm.Y
+    };
+
+    const auto TouchesEndpoint =
+        [Tolerance](
+            const FProximaWallData& Wall,
+            Point Position)
+        {
+            const Segment Geometry =
+                ToSegment(Wall);
+
+            return
+                ProximaGeometry::TopologyNear(
+                    Geometry.Start,
+                    Position,
+                    Tolerance) ||
+                ProximaGeometry::TopologyNear(
+                    Geometry.End,
+                    Position,
+                    Tolerance);
+        };
+
+    const auto ResolveEndpoint =
+        [Tolerance](
+            const FProximaWallData& Wall,
+            Point Approximate,
+            Point& OutExact,
+            Point& OutOpposite)
+        {
+            const Segment Geometry =
+                ToSegment(Wall);
+
+            const bool bNearStart =
+                ProximaGeometry::TopologyNear(
+                    Geometry.Start,
+                    Approximate,
+                    Tolerance);
+
+            const bool bNearEnd =
+                ProximaGeometry::TopologyNear(
+                    Geometry.End,
+                    Approximate,
+                    Tolerance);
+
+            if (bNearStart == bNearEnd)
+            {
+                return false;
+            }
+
+            OutExact =
+                bNearStart
+                    ? Geometry.Start
+                    : Geometry.End;
+
+            OutOpposite =
+                bNearStart
+                    ? Geometry.End
+                    : Geometry.Start;
+
+            return true;
+        };
+
+    TArray<int32> StartingWalls;
+
+    for (int32 Index = 0;
+         Index < Walls.Num();
+         ++Index)
+    {
+        if (!Walls[Index].IsValid())
+        {
+            return false;
+        }
+
+        if (TouchesEndpoint(
+                Walls[Index],
+                Requested))
+        {
+            StartingWalls.Add(Index);
+        }
+    }
+
+    // Resume only from a genuinely open endpoint.
+    if (StartingWalls.Num() != 1)
+    {
+        return false;
+    }
+
+    const int32 StartWallIndex =
+        StartingWalls[0];
+
+    const FProximaWallData& ScopeSeed =
+        Walls[StartWallIndex];
+
+    Point ExactStart;
+    Point FirstOpposite;
+
+    if (!ResolveEndpoint(
+            ScopeSeed,
+            Requested,
+            ExactStart,
+            FirstOpposite))
+    {
+        return false;
+    }
+
+    TArray<FVector2D> ReversePoints;
+
+    ReversePoints.Add(
+        FVector2D(
+            ExactStart.X,
+            ExactStart.Y));
+
+    TSet<int32> VisitedWalls;
+
+    int32 CurrentWallIndex =
+        StartWallIndex;
+
+    Point CurrentPoint =
+        ExactStart;
+
+    for (int32 Guard = 0;
+         Guard < Walls.Num();
+         ++Guard)
+    {
+        if (VisitedWalls.Contains(
+                CurrentWallIndex))
+        {
+            OutPointsCm.Reset();
+            return false;
+        }
+
+        VisitedWalls.Add(
+            CurrentWallIndex);
+
+        Point ExactCurrent;
+        Point Opposite;
+
+        if (!ResolveEndpoint(
+                Walls[CurrentWallIndex],
+                CurrentPoint,
+                ExactCurrent,
+                Opposite))
+        {
+            OutPointsCm.Reset();
+            return false;
+        }
+
+        ReversePoints.Add(
+            FVector2D(
+                Opposite.X,
+                Opposite.Y));
+
+        int32 IncidentCount = 0;
+        int32 NextWallIndex =
+            INDEX_NONE;
+
+        for (int32 Index = 0;
+             Index < Walls.Num();
+             ++Index)
+        {
+            if (!SameTopologyScope(
+                    ScopeSeed,
+                    Walls[Index]))
+            {
+                continue;
+            }
+
+            if (!TouchesEndpoint(
+                    Walls[Index],
+                    Opposite))
+            {
+                continue;
+            }
+
+            ++IncidentCount;
+
+            if (Index !=
+                    CurrentWallIndex &&
+                !VisitedWalls.Contains(
+                    Index))
+            {
+                if (NextWallIndex !=
+                    INDEX_NONE)
+                {
+                    OutPointsCm.Reset();
+                    return false;
+                }
+
+                NextWallIndex =
+                    Index;
+            }
+        }
+
+        if (IncidentCount == 1)
+        {
+            for (int32 Index =
+                     ReversePoints.Num() - 1;
+                 Index >= 0;
+                 --Index)
+            {
+                OutPointsCm.Add(
+                    ReversePoints[Index]);
+            }
+
+            return
+                OutPointsCm.Num() >= 2;
+        }
+
+        if (IncidentCount != 2 ||
+            NextWallIndex ==
+                INDEX_NONE)
+        {
+            OutPointsCm.Reset();
+            return false;
+        }
+
+        CurrentPoint =
+            Opposite;
+
+        CurrentWallIndex =
+            NextWallIndex;
+    }
+
+    OutPointsCm.Reset();
+    return false;
+}
+
 void FProximaWallTopology::RebuildConnections(
     TArray<FProximaWallData>& Walls,
     float ToleranceCm)

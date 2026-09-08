@@ -40,6 +40,7 @@ void AProximaPlayerController::SetupInputComponent()
     InputComponent->BindAxis(TEXT("LookUp"), this, &AProximaPlayerController::HandleLookUp);
     InputComponent->BindAxis(TEXT("BuildZoom"), this, &AProximaPlayerController::HandleBuildZoom);
     InputComponent->BindKey(EKeys::B, IE_Pressed, this, &AProximaPlayerController::ToggleBuildMode);
+    InputComponent->BindKey(EKeys::C, IE_Pressed, this, &AProximaPlayerController::HandleCloseRectangle);
     InputComponent->BindKey(EKeys::V, IE_Pressed, this, &AProximaPlayerController::HandleInspection);
     InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AProximaPlayerController::HandlePrimary);
     InputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AProximaPlayerController::HandleCancel);
@@ -180,6 +181,15 @@ void AProximaPlayerController::HandleBuildZoom(float Value)
 void AProximaPlayerController::HandleBuildRotatePressed() { bBuildCameraRotateHeld = IsBuildModeActive() && !Workshop->IsPointerOverPanel(); }
 void AProximaPlayerController::HandleBuildRotateReleased() { bBuildCameraRotateHeld = false; }
 void AProximaPlayerController::HandlePrimary() { Workshop->PrimaryAction(); }
+
+void AProximaPlayerController::HandleCloseRectangle()
+{
+    if (IsBuildModeActive() && Workshop)
+    {
+        Workshop->CompleteRectangleShortcut();
+    }
+}
+
 void AProximaPlayerController::HandleCancel() { if (IsBuildModeActive()) { Workshop->Cancel(); } }
 void AProximaPlayerController::HandleUndo()
 {

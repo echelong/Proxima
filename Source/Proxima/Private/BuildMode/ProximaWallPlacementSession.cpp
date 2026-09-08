@@ -37,6 +37,60 @@ void UProximaWallPlacementSession::ConfirmStart(const FVector2D& StartCm)
     CurrentState = EProximaPlacementState::Previewing;
 }
 
+bool UProximaWallPlacementSession::ResumeFromExistingChain(
+    const TArray<FVector2D>& OrderedPointsCm)
+{
+    if (OrderedPointsCm.Num() < 2)
+    {
+        return false;
+    }
+
+    for (int32 Index = 0;
+         Index < OrderedPointsCm.Num();
+         ++Index)
+    {
+        const FVector2D& Point =
+            OrderedPointsCm[Index];
+
+        if (!FMath::IsFinite(Point.X) ||
+            !FMath::IsFinite(Point.Y))
+        {
+            return false;
+        }
+
+        if (Index > 0 &&
+            FVector2D::Distance(
+                OrderedPointsCm[Index - 1],
+                Point) <
+                FMath::Max(
+                    MinWallLengthCm,
+                    1.0f))
+        {
+            return false;
+        }
+    }
+
+    ChainPointsCm =
+        OrderedPointsCm;
+
+    StartPointCm =
+        ChainPointsCm.Last();
+
+    CurrentEndpointCm =
+        StartPointCm;
+
+    SnappedEndpointCm =
+        StartPointCm;
+
+    PreviewLengthM = 0.0f;
+    bCanConfirm = false;
+
+    CurrentState =
+        EProximaPlacementState::Previewing;
+
+    return true;
+}
+
 void UProximaWallPlacementSession::ContinueFromCurrentEndpoint()
 {
     const FVector2D NextStartCm =
@@ -233,6 +287,65 @@ bool UProximaWallPlacementSession::TrySnapToChainStart(
 
     OutEndpointCm =
         ChainStart;
+
+    return true;
+}
+
+bool UProximaWallPlacementSession::TryGetRectangleAutoClose(
+    FVector2D& OutMatchedCornerCm,
+    FVector2D& OutClosureTargetCm) const
+{
+    OutMatchedCornerCm =
+        FVector2D::ZeroVector;
+
+    OutClosureTargetCm =
+        FVector2D::ZeroVector;
+
+    if (CurrentState !=
+            EProximaPlacementState::Previewing ||
+        ChainPointsCm.Num() != 3 ||
+        !bCanConfirm)
+    {
+        return false;
+    }
+
+    FVector2D MatchedCorner;
+    bool bAtLimit = false;
+
+    if (!TryResolveRectangleThirdWall(
+            SnappedEndpointCm,
+            MatchedCorner,
+            bAtLimit) ||
+        !bAtLimit)
+    {
+        return false;
+    }
+
+    if (!MatchedCorner.Equals(
+            SnappedEndpointCm,
+            0.1f))
+    {
+        return false;
+    }
+
+    const FVector2D ClosureTarget =
+        ChainPointsCm[0];
+
+    if (FVector2D::Distance(
+            MatchedCorner,
+            ClosureTarget) <
+        FMath::Max(
+            MinWallLengthCm,
+            1.0f))
+    {
+        return false;
+    }
+
+    OutMatchedCornerCm =
+        MatchedCorner;
+
+    OutClosureTargetCm =
+        ClosureTarget;
 
     return true;
 }
