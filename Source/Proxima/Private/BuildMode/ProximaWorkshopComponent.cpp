@@ -10,6 +10,7 @@
 #include "Building/ProximaBuildingManager.h"
 #include "Building/ProximaGeometryKernel.h"
 #include "Building/ProximaRoomBuilder.h"
+#include "Building/ProximaRoomTopology.h"
 #include "Building/ProximaWallTopology.h"
 #include "Commands/ProximaCommandManager.h"
 #include "Commands/ProximaWallCommands.h"
@@ -1047,9 +1048,51 @@ void UProximaWorkshopComponent::CompleteRectangleShortcut()
         return;
     }
 
+    int32 ExteriorPiecesRemoved =
+        0;
+
+    TArray<FProximaRoomData>
+        AutoCloseRooms;
+
+    if (!FProximaRoomTopology::DetectRooms(
+            ClosedWalls,
+            AutoCloseRooms))
+    {
+        Status =
+            TEXT(
+                "Automatic rectangle room detection failed. "
+                "No changes were made.");
+        return;
+    }
+
+    if (AutoCloseRooms.Num() >
+        Model()->GetRoomsView().Num())
+    {
+        TArray<FProximaWallData>
+            CleanedWalls;
+
+        if (!FProximaRoomTopology::
+                PruneExteriorDanglingWalls(
+                    ClosedWalls,
+                    ClosingWall.WallId,
+                    CleanedWalls,
+                    &ExteriorPiecesRemoved))
+        {
+            Status =
+                TEXT(
+                    "Automatic rectangle cleanup failed. "
+                    "No changes were made.");
+            return;
+        }
+
+        ClosedWalls =
+            MoveTemp(
+                CleanedWalls);
+    }
+
     /*
-     * One model command contains BOTH missing sides.
-     * Ctrl+Z therefore removes walls 3 and 4 together.
+     * One model command contains BOTH missing sides and any automatic
+     * exterior-tail cleanup. Ctrl+Z restores the complete pre-close state.
      */
     if (!CommitModel(
             ClosedWalls,
@@ -1069,6 +1112,7 @@ void UProximaWorkshopComponent::CompleteRectangleShortcut()
             TEXT(
                 "Rectangle closed automatically with C: "
                 "%.2f x %.2f m. "
+                "Exterior cleanup removed %d piece%s. "
                 "Walls 3 and 4 are one undo step."),
             FVector2D::Distance(
                 A,
@@ -1077,7 +1121,11 @@ void UProximaWorkshopComponent::CompleteRectangleShortcut()
             FVector2D::Distance(
                 B,
                 C) /
-                100.0f);
+                100.0f,
+            ExteriorPiecesRemoved,
+            ExteriorPiecesRemoved == 1
+                ? TEXT("")
+                : TEXT("s"));
 }
 
 void UProximaWorkshopComponent::PrimaryAction()
@@ -1153,6 +1201,51 @@ void UProximaWorkshopComponent::PrimaryAction()
             return;
         }
 
+        const int32 RoomsBefore =
+            Model()->GetRoomsView().Num();
+
+        TArray<FProximaRoomData>
+            RoomsAfterPlacement;
+
+        if (!FProximaRoomTopology::DetectRooms(
+                TopologyWalls,
+                RoomsAfterPlacement))
+        {
+            Status =
+                TEXT(
+                    "Room topology validation failed. "
+                    "The model is unchanged.");
+            return;
+        }
+
+        int32 ExteriorPiecesRemoved =
+            0;
+
+        if (RoomsAfterPlacement.Num() >
+            RoomsBefore)
+        {
+            TArray<FProximaWallData>
+                CleanedWalls;
+
+            if (!FProximaRoomTopology::
+                    PruneExteriorDanglingWalls(
+                        TopologyWalls,
+                        Wall.WallId,
+                        CleanedWalls,
+                        &ExteriorPiecesRemoved))
+            {
+                Status =
+                    TEXT(
+                        "Closed-footprint cleanup failed. "
+                        "The model is unchanged.");
+                return;
+            }
+
+            TopologyWalls =
+                MoveTemp(
+                    CleanedWalls);
+        }
+
         const int32 AddedPieces =
             TopologyWalls.Num() -
             Model()->GetWallsView().Num();
@@ -1166,6 +1259,7 @@ void UProximaWorkshopComponent::PrimaryAction()
                     "Wall built: %.2f m. "
                     "Topology updated (%d net wall piece%s). "
                     "Rooms: %d | auto floors: %d. "
+                    "Exterior cleanup: %d piece%s removed. "
                     "Continue drawing, or right-click to finish."),
                 Wall.GetLengthCm() / 100.0f,
                 AddedPieces,
@@ -1173,7 +1267,11 @@ void UProximaWorkshopComponent::PrimaryAction()
                     ? TEXT("")
                     : TEXT("s"),
                 Model()->GetRoomsView().Num(),
-                RoomFloors.Num());
+                RoomFloors.Num(),
+                ExteriorPiecesRemoved,
+                ExteriorPiecesRemoved == 1
+                    ? TEXT("")
+                    : TEXT("s"));
 
             Session->ContinueFromCurrentEndpoint();
             HidePreviews();

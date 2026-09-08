@@ -376,6 +376,176 @@ bool FProximaRoomTopologyTest::RunTest(
         }
     }
 
+    {
+        /*
+         * Closing into the middle of an oversized first wall:
+         *
+         * BEFORE cleanup
+         *
+         * extra tail
+         * --------+----------------------+
+         *         |                      |
+         *         |         ROOM         |
+         *         |                      |
+         *         +----------------------+
+         *
+         * The final wall splits the first wall at X=100.
+         * The segment from X=-200 to X=100 is outside the room
+         * and must be removed automatically.
+         */
+        const TArray<FProximaWallData> SourceWalls = {
+            MakeRoomWall(
+                -200.0f,
+                0.0f,
+                600.0f,
+                0.0f),
+
+            MakeRoomWall(
+                600.0f,
+                0.0f,
+                600.0f,
+                400.0f),
+
+            MakeRoomWall(
+                600.0f,
+                400.0f,
+                100.0f,
+                400.0f),
+
+            MakeRoomWall(
+                100.0f,
+                400.0f,
+                100.0f,
+                0.0f)
+        };
+
+        const FProximaWallID ClosingWallId =
+            SourceWalls.Last().WallId;
+
+        TArray<FProximaWallData> BuiltWalls;
+
+        bool bAllInserted =
+            true;
+
+        for (const FProximaWallData& Wall :
+             SourceWalls)
+        {
+            TArray<FProximaWallData> Next;
+
+            if (!FProximaWallTopology::InsertWall(
+                    BuiltWalls,
+                    Wall,
+                    Next))
+            {
+                bAllInserted =
+                    false;
+                break;
+            }
+
+            BuiltWalls =
+                MoveTemp(Next);
+        }
+
+        TestTrue(
+            TEXT(
+                "Exterior-tail walls insert"),
+            bAllInserted);
+
+        TArray<FProximaRoomData> RoomsBeforeCleanup;
+
+        TestTrue(
+            TEXT(
+                "Exterior-tail shape detects a room"),
+            bAllInserted &&
+            FProximaRoomTopology::DetectRooms(
+                BuiltWalls,
+                RoomsBeforeCleanup));
+
+        TestEqual(
+            TEXT(
+                "Exterior-tail shape has one room"),
+            RoomsBeforeCleanup.Num(),
+            1);
+
+        const int32 WallsBeforeCleanup =
+            BuiltWalls.Num();
+
+        TArray<FProximaWallData> CleanedWalls;
+
+        int32 RemovedCount =
+            0;
+
+        TestTrue(
+            TEXT(
+                "Exterior closure cleanup succeeds"),
+            FProximaRoomTopology::
+                PruneExteriorDanglingWalls(
+                    BuiltWalls,
+                    ClosingWallId,
+                    CleanedWalls,
+                    &RemovedCount));
+
+        TestEqual(
+            TEXT(
+                "Exterior closure tail is pruned"),
+            RemovedCount,
+            1);
+
+        TestEqual(
+            TEXT(
+                "Cleanup removes exactly one wall piece"),
+            CleanedWalls.Num(),
+            WallsBeforeCleanup - 1);
+
+        bool bExteriorTailStillExists =
+            false;
+
+        for (const FProximaWallData& Wall :
+             CleanedWalls)
+        {
+            const FVector2D Start =
+                Wall.StartPoint.ToVector2D();
+
+            const FVector2D End =
+                Wall.EndPoint.ToVector2D();
+
+            const FVector2D Midpoint =
+                (Start + End) *
+                0.5f;
+
+            if (FMath::IsNearlyZero(
+                    Midpoint.Y,
+                    0.1f) &&
+                Midpoint.X <
+                    100.0f - 0.1f)
+            {
+                bExteriorTailStillExists =
+                    true;
+                break;
+            }
+        }
+
+        TestFalse(
+            TEXT(
+                "No outside wall tail remains"),
+            bExteriorTailStillExists);
+
+        TArray<FProximaRoomData> RoomsAfterCleanup;
+
+        TestTrue(
+            TEXT(
+                "Room remains valid after exterior cleanup"),
+            FProximaRoomTopology::DetectRooms(
+                CleanedWalls,
+                RoomsAfterCleanup));
+
+        TestEqual(
+            TEXT(
+                "Exterior cleanup preserves one room"),
+            RoomsAfterCleanup.Num(),
+            1);
+    }
+
     return true;
 }
 
