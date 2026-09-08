@@ -300,6 +300,51 @@ TriangulatePolygon(
 }
 
 bool AProximaRuntimeRoomFloor::
+MakeTwoSidedTriangles(
+    const TArray<int32>& FrontTriangles,
+    TArray<int32>& OutTriangles)
+{
+    OutTriangles.Reset();
+
+    if (FrontTriangles.IsEmpty() ||
+        FrontTriangles.Num() % 3 != 0)
+    {
+        return false;
+    }
+
+    OutTriangles.Reserve(
+        FrontTriangles.Num() * 2);
+
+    for (int32 Index = 0;
+         Index < FrontTriangles.Num();
+         Index += 3)
+    {
+        const int32 A =
+            FrontTriangles[Index];
+
+        const int32 B =
+            FrontTriangles[Index + 1];
+
+        const int32 C =
+            FrontTriangles[Index + 2];
+
+        // Original winding.
+        OutTriangles.Add(A);
+        OutTriangles.Add(B);
+        OutTriangles.Add(C);
+
+        // Reverse winding.
+        OutTriangles.Add(A);
+        OutTriangles.Add(C);
+        OutTriangles.Add(B);
+    }
+
+    return
+        OutTriangles.Num() ==
+        FrontTriangles.Num() * 2;
+}
+
+bool AProximaRuntimeRoomFloor::
 InitializeFromData(
     const FProximaRoomData& Data)
 {
@@ -314,6 +359,15 @@ InitializeFromData(
     if (!TriangulatePolygon(
             Data.VerticesCm,
             Triangles))
+    {
+        return false;
+    }
+
+    TArray<int32> RenderTriangles;
+
+    if (!MakeTwoSidedTriangles(
+            Triangles,
+            RenderTriangles))
     {
         return false;
     }
@@ -379,7 +433,7 @@ InitializeFromData(
     Mesh->CreateMeshSection_LinearColor(
         0,
         Vertices,
-        Triangles,
+        RenderTriangles,
         Normals,
         UV0,
         EmptyUV,
@@ -406,6 +460,13 @@ InitializeFromData(
             0,
             Surface);
     }
+
+    Mesh->SetVisibility(
+        true,
+        true);
+
+    SetActorHiddenInGame(
+        false);
 
     return true;
 }

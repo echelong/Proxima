@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
+#include "Building/ProximaWallData.h"
 #include "ProximaWallSnapping.generated.h"
 
 UCLASS()
@@ -24,4 +25,18 @@ public:
         const TArray<FVector2D>& ExistingEndpointsCm,
         float ToleranceCm,
         FVector2D& OutEndpointCm);
+
+    /**
+     * Extends the proposed wall forward and finds an exact intersection
+     * with existing wall geometry.
+     *
+     * This is the general BLUE connection rule used for rectangles,
+     * L-shaped rooms and irregular wall chains.
+     */
+    static bool FindForwardWallAttachment(
+        const FVector2D& StartCm,
+        const FVector2D& CandidateCm,
+        const TArray<FProximaWallData>& ExistingWalls,
+        float ForwardToleranceCm,
+        FVector2D& OutAttachmentCm);
 };

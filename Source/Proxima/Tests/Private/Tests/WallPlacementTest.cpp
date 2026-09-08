@@ -98,6 +98,76 @@ bool FProximaWallSnappingTest::RunTest(const FString& Parameters)
         Session->CurrentEndpointCm.Equals(FVector2D(101.0f, 0.0f), 0.001f) &&
         Session->SnappedEndpointCm.Equals(FVector2D(100.0f, 0.0f), 0.001f));
 
+    /*
+     * L / irregular closure:
+     *
+     * wall 1:  ---------------------------
+     *
+     *                       |
+     *                       |
+     *                     wall 5
+     *
+     * The cursor does not need to land pixel-perfectly on wall 1.
+     * Extending 80 cm forward finds the exact intersection.
+     */
+    FProximaWallData TargetWall;
+
+    TargetWall.WallId.Id =
+        FProximaID::NewId();
+
+    TargetWall.StartPoint.XCm =
+        0.0f;
+
+    TargetWall.StartPoint.YCm =
+        0.0f;
+
+    TargetWall.EndPoint.XCm =
+        600.0f;
+
+    TargetWall.EndPoint.YCm =
+        0.0f;
+
+    FVector2D Attachment;
+
+    TestTrue(
+        TEXT(
+            "Forward locked wall finds first-wall interior"),
+        UProximaWallSnapping::
+            FindForwardWallAttachment(
+                FVector2D(
+                    300.0f,
+                    400.0f),
+                FVector2D(
+                    300.0f,
+                    60.0f),
+                {TargetWall},
+                80.0f,
+                Attachment));
+
+    TestTrue(
+        TEXT(
+            "Forward attachment resolves exact intersection"),
+        Attachment.Equals(
+            FVector2D(
+                300.0f,
+                0.0f),
+            0.001f));
+
+    TestFalse(
+        TEXT(
+            "Forward attachment does not activate too early"),
+        UProximaWallSnapping::
+            FindForwardWallAttachment(
+                FVector2D(
+                    300.0f,
+                    400.0f),
+                FVector2D(
+                    300.0f,
+                    150.0f),
+                {TargetWall},
+                80.0f,
+                Attachment));
+
     return true;
 }
 

@@ -164,6 +164,42 @@ bool FProximaRoomTopologyTest::RunTest(
                     TEXT("Room floor triangle index is valid"),
                     Rooms[0].VerticesCm.IsValidIndex(Index));
             }
+
+            TArray<int32> TwoSidedTriangles;
+
+            TestTrue(
+                TEXT(
+                    "Automatic floor builds both triangle windings"),
+                AProximaRuntimeRoomFloor::
+                    MakeTwoSidedTriangles(
+                        Triangles,
+                        TwoSidedTriangles));
+
+            TestEqual(
+                TEXT(
+                    "Automatic floor doubles triangles for both visible sides"),
+                TwoSidedTriangles.Num(),
+                Triangles.Num() * 2);
+
+            if (Triangles.Num() >= 3 &&
+                TwoSidedTriangles.Num() >= 6)
+            {
+                TestTrue(
+                    TEXT(
+                        "Automatic floor contains reverse winding"),
+                    TwoSidedTriangles[0] ==
+                        Triangles[0] &&
+                    TwoSidedTriangles[1] ==
+                        Triangles[1] &&
+                    TwoSidedTriangles[2] ==
+                        Triangles[2] &&
+                    TwoSidedTriangles[3] ==
+                        Triangles[0] &&
+                    TwoSidedTriangles[4] ==
+                        Triangles[2] &&
+                    TwoSidedTriangles[5] ==
+                        Triangles[1]);
+            }
         }
     }
 

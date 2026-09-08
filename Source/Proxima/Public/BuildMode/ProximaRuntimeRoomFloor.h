@@ -33,6 +33,14 @@ public:
         const TArray<FVector2D>& Polygon,
         TArray<int32>& OutTriangles);
 
+    /**
+     * Adds the reverse winding for every triangle so the derived floor
+     * remains visible regardless of camera side/back-face culling.
+     */
+    static bool MakeTwoSidedTriangles(
+        const TArray<int32>& FrontTriangles,
+        TArray<int32>& OutTriangles);
+
 private:
     UPROPERTY(VisibleAnywhere)
     TObjectPtr<UProceduralMeshComponent> Mesh = nullptr;

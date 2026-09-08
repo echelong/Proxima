@@ -150,111 +150,13 @@ bool UProximaWorkshopComponent::FindWallAttachment(
         return false;
     }
 
-    const float Tolerance =
-        FMath::Max(
-            0.0f,
-            ToleranceCm);
-
-    float BestDistance =
-        Tolerance;
-
-    bool bFound =
-        false;
-
-    for (const FProximaWallData& Wall :
-         Model()->GetWallsView())
-    {
-        double Along = 0.0;
-
-        const auto Closest =
-            ProximaGeometry::ClosestPoint(
-                {
-                    CandidateCm.X,
-                    CandidateCm.Y
-                },
-                {
-                    Wall.StartPoint.XCm,
-                    Wall.StartPoint.YCm
-                },
-                {
-                    Wall.EndPoint.XCm,
-                    Wall.EndPoint.YCm
-                },
-                &Along);
-
-        const FVector2D Attachment(
-            Closest.X,
-            Closest.Y);
-
-        const float Distance =
-            FVector2D::Distance(
-                CandidateCm,
-                Attachment);
-
-        if (Distance >
-            BestDistance)
-        {
-            continue;
-        }
-
-        /*
-         * Do not immediately snap a new preview back onto its own origin.
-         */
-        if (Attachment.Equals(
-                Session->StartPointCm,
-                1.0f))
-        {
-            continue;
-        }
-
-        /*
-         * If 45-degree lock is active, only accept an attachment that still
-         * lies on approximately the same locked direction.
-         */
-        if (bAngleLock)
-        {
-            const FVector2D Direction =
-                Attachment -
-                Session->StartPointCm;
-
-            if (!Direction.IsNearlyZero())
-            {
-                const double ActualAngle =
-                    FMath::Atan2(
-                        Direction.Y,
-                        Direction.X);
-
-                const double LockedAngle =
-                    FMath::GridSnap(
-                        ActualAngle,
-                        PI / 4.0);
-
-                const double Difference =
-                    FMath::Abs(
-                        FMath::UnwindRadians(
-                            ActualAngle -
-                            LockedAngle));
-
-                if (Difference >
-                    FMath::DegreesToRadians(
-                        3.0))
-                {
-                    continue;
-                }
-            }
-        }
-
-        BestDistance =
-            Distance;
-
-        OutAttachmentCm =
-            Attachment;
-
-        bFound =
-            true;
-    }
-
-    return bFound;
+    return UProximaWallSnapping::
+        FindForwardWallAttachment(
+            Session->StartPointCm,
+            CandidateCm,
+            Model()->GetWallsView(),
+            ToleranceCm,
+            OutAttachmentCm);
 }
 
 bool UProximaWorkshopComponent::FindResumableEndpoint(
@@ -349,7 +251,7 @@ void UProximaWorkshopComponent::HidePreviews()
 void UProximaWorkshopComponent::ShowPreview(int32 Index, const FVector2D& Start, const FVector2D& End,
     float Height, float Thickness, float Elevation, bool bValid)
 {
-    // A bounded pool is reused between frames and gestures, at most four Actors.
+    // Preview Actors are pooled and reused between frames and gestures.
     while (Previews.Num() <= Index)
     {
         FActorSpawnParameters Params;
@@ -377,71 +279,169 @@ void UProximaWorkshopComponent::UpdatePreview()
         Session->GetState() ==
             EProximaPlacementState::ChoosingStart)
     {
-        FVector2D ResumeEndpoint;
-        TArray<FVector2D> ResumeChain;
+        FVector2D ActiveResumeEndpoint;
+        TArray<FVector2D> ActiveResumeChain;
 
-        /*
-         * Large CYAN cross around every resumable open endpoint.
-         * The 70 cm interaction radius makes it easy to reacquire.
-         */
-        if (FindResumableEndpoint(
+        const bool bHasActiveResume =
+            FindResumableEndpoint(
                 Raw,
-                ResumeEndpoint,
-                ResumeChain,
-                70.0f))
+                ActiveResumeEndpoint,
+                ActiveResumeChain,
+                90.0f);
+
+        if (bHasActiveResume)
         {
-            constexpr float GripArmCm =
-                42.0f;
-
-            constexpr float GripThicknessCm =
-                12.0f;
-
-            ShowPreview(
-                0,
-                ResumeEndpoint -
-                    FVector2D(
-                        GripArmCm,
-                        0.0f),
-                ResumeEndpoint +
-                    FVector2D(
-                        GripArmCm,
-                        0.0f),
-                16.0f,
-                GripThicknessCm,
-                3.0f,
-                true);
-
-            ShowPreview(
-                1,
-                ResumeEndpoint -
-                    FVector2D(
-                        0.0f,
-                        GripArmCm),
-                ResumeEndpoint +
-                    FVector2D(
-                        0.0f,
-                        GripArmCm),
-                16.0f,
-                GripThicknessCm,
-                3.0f,
-                true);
-
-            if (Previews.IsValidIndex(0))
-            {
-                Previews[0]->SetCue(
-                    EProximaWallPreviewCue::Resume);
-            }
-
-            if (Previews.IsValidIndex(1))
-            {
-                Previews[1]->SetCue(
-                    EProximaWallPreviewCue::Resume);
-            }
+            /*
+             * Snap the interaction cursor to the same endpoint represented
+             * by the highlighted cyan grip.
+             */
+            Cursor =
+                ActiveResumeEndpoint;
 
             Status =
                 TEXT(
-                    "CYAN: click the open endpoint "
-                    "to resume this wall chain.");
+                    "CYAN: click this open endpoint "
+                    "to resume its wall chain.");
+        }
+
+        TArray<FVector2D> SeenEndpoints;
+
+        int32 PreviewIndex =
+            0;
+
+        int32 HandleCount =
+            0;
+
+        constexpr int32 MaxResumeHandles =
+            16;
+
+        for (const FProximaWallData& Wall :
+             Model()->GetWallsView())
+        {
+            if (HandleCount >=
+                MaxResumeHandles)
+            {
+                break;
+            }
+
+            const FVector2D Endpoints[] = {
+                Wall.StartPoint.ToVector2D(),
+                Wall.EndPoint.ToVector2D()
+            };
+
+            for (const FVector2D& Endpoint :
+                 Endpoints)
+            {
+                if (HandleCount >=
+                    MaxResumeHandles)
+                {
+                    break;
+                }
+
+                const bool bAlreadySeen =
+                    SeenEndpoints.ContainsByPredicate(
+                        [&Endpoint](
+                            const FVector2D& Existing)
+                        {
+                            return Existing.Equals(
+                                Endpoint,
+                                0.1f);
+                        });
+
+                if (bAlreadySeen)
+                {
+                    continue;
+                }
+
+                SeenEndpoints.Add(
+                    Endpoint);
+
+                TArray<FVector2D> Chain;
+
+                if (!FProximaWallTopology::
+                        BuildOpenChainEndingAt(
+                            Model()->GetWallsView(),
+                            Endpoint,
+                            Chain,
+                            0.1f))
+                {
+                    continue;
+                }
+
+                const bool bActiveHandle =
+                    bHasActiveResume &&
+                    Endpoint.Equals(
+                        ActiveResumeEndpoint,
+                        0.1f);
+
+                const float ArmCm =
+                    bActiveHandle
+                        ? 48.0f
+                        : 24.0f;
+
+                const float GripThicknessCm =
+                    bActiveHandle
+                        ? 14.0f
+                        : 8.0f;
+
+                const float GripHeightCm =
+                    bActiveHandle
+                        ? 20.0f
+                        : 12.0f;
+
+                ShowPreview(
+                    PreviewIndex,
+                    Endpoint -
+                        FVector2D(
+                            ArmCm,
+                            0.0f),
+                    Endpoint +
+                        FVector2D(
+                            ArmCm,
+                            0.0f),
+                    GripHeightCm,
+                    GripThicknessCm,
+                    4.0f,
+                    true);
+
+                if (Previews.IsValidIndex(
+                        PreviewIndex))
+                {
+                    Previews[PreviewIndex]->
+                        SetCue(
+                            EProximaWallPreviewCue::
+                                Resume);
+                }
+
+                ++PreviewIndex;
+
+                ShowPreview(
+                    PreviewIndex,
+                    Endpoint -
+                        FVector2D(
+                            0.0f,
+                            ArmCm),
+                    Endpoint +
+                        FVector2D(
+                            0.0f,
+                            ArmCm),
+                    GripHeightCm,
+                    GripThicknessCm,
+                    4.0f,
+                    true);
+
+                if (Previews.IsValidIndex(
+                        PreviewIndex))
+                {
+                    Previews[PreviewIndex]->
+                        SetCue(
+                            EProximaWallPreviewCue::
+                                Resume);
+                }
+
+                ++PreviewIndex;
+                ++HandleCount;
+            }
         }
     }
     else if (
@@ -542,7 +542,7 @@ void UProximaWorkshopComponent::UpdatePreview()
 
             const float AttachmentToleranceCm =
                 FMath::Max(
-                    35.0f,
+                    70.0f,
                     GridCm * 2.0f);
 
             if (FindWallAttachment(
@@ -691,6 +691,65 @@ void UProximaWorkshopComponent::UpdatePreview()
                                 "wall to existing geometry.");
                     }
                 }
+            }
+        }
+
+        /*
+         * Even while actively continuing a chain, keep its current origin
+         * clearly visible. This is the endpoint the next wall is attached to.
+         */
+        {
+            const FVector2D Grip =
+                Session->StartPointCm;
+
+            constexpr float GripArmCm =
+                30.0f;
+
+            constexpr float GripThicknessCm =
+                9.0f;
+
+            ShowPreview(
+                1,
+                Grip -
+                    FVector2D(
+                        GripArmCm,
+                        0.0f),
+                Grip +
+                    FVector2D(
+                        GripArmCm,
+                        0.0f),
+                14.0f,
+                GripThicknessCm,
+                4.0f,
+                true);
+
+            if (Previews.IsValidIndex(1))
+            {
+                Previews[1]->SetCue(
+                    EProximaWallPreviewCue::
+                        Resume);
+            }
+
+            ShowPreview(
+                2,
+                Grip -
+                    FVector2D(
+                        0.0f,
+                        GripArmCm),
+                Grip +
+                    FVector2D(
+                        0.0f,
+                        GripArmCm),
+                14.0f,
+                GripThicknessCm,
+                4.0f,
+                true);
+
+            if (Previews.IsValidIndex(2))
+            {
+                Previews[2]->SetCue(
+                    EProximaWallPreviewCue::
+                        Resume);
             }
         }
     }
@@ -1041,7 +1100,7 @@ void UProximaWorkshopComponent::PrimaryAction()
                     Cursor,
                     ResumeEndpoint,
                     ExistingChain,
-                    70.0f) &&
+                    90.0f) &&
                 Session->ResumeFromExistingChain(
                     ExistingChain))
             {
@@ -1104,11 +1163,17 @@ void UProximaWorkshopComponent::PrimaryAction()
         {
             Status = FString::Printf(
                 TEXT(
-                    "Wall built: %.2f m. Topology updated (%d net wall piece%s). "
+                    "Wall built: %.2f m. "
+                    "Topology updated (%d net wall piece%s). "
+                    "Rooms: %d | auto floors: %d. "
                     "Continue drawing, or right-click to finish."),
                 Wall.GetLengthCm() / 100.0f,
                 AddedPieces,
-                AddedPieces == 1 ? TEXT("") : TEXT("s"));
+                AddedPieces == 1
+                    ? TEXT("")
+                    : TEXT("s"),
+                Model()->GetRoomsView().Num(),
+                RoomFloors.Num());
 
             Session->ContinueFromCurrentEndpoint();
             HidePreviews();
@@ -1466,7 +1531,19 @@ FString UProximaWorkshopComponent::GetSelectionReadout() const
         return FString::Printf(TEXT("Wall: %.2f m x %.2f m  |  %d openings"), Wall.GetLengthCm() / 100.0f, Wall.HeightCm / 100.0f, Wall.Openings.Num());
     }
     if (SelectedSlab.IsValid()) { return TEXT("Surface selected. Delete removes it; Ctrl+Z restores it."); }
-    return TEXT("LMB start / confirm  |  RMB cancel  |  Ctrl+Z / Ctrl+Y undo / redo");
+    if (Model())
+    {
+        return FString::Printf(
+            TEXT(
+                "Rooms: %d  |  Auto floors: %d  |  "
+                "LMB start / confirm  |  RMB cancel"),
+            Model()->GetRoomsView().Num(),
+            RoomFloors.Num());
+    }
+
+    return TEXT(
+        "LMB start / confirm  |  RMB cancel  |  "
+        "Ctrl+Z / Ctrl+Y undo / redo");
 }
 
 void UProximaWorkshopComponent::AddExampleHome()
