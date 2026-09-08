@@ -2,6 +2,7 @@
 
 #include "Misc/AutomationTest.h"
 #include "BuildMode/ProximaRuntimeRoomFloor.h"
+#include "BuildMode/ProximaRuntimeSlab.h"
 #include "Building/ProximaBuildingManager.h"
 #include "Building/ProximaRoomTopology.h"
 #include "Building/ProximaWallTopology.h"
@@ -544,6 +545,139 @@ bool FProximaRoomTopologyTest::RunTest(
                 "Exterior cleanup preserves one room"),
             RoomsAfterCleanup.Num(),
             1);
+    }
+
+    {
+        const TArray<FVector2D> Square = {
+            FVector2D(
+                0.0f,
+                0.0f),
+            FVector2D(
+                400.0f,
+                0.0f),
+            FVector2D(
+                400.0f,
+                400.0f),
+            FVector2D(
+                0.0f,
+                400.0f)
+        };
+
+        FProximaFloorOpeningRect Opening;
+
+        Opening.MinCm =
+            FVector2D(
+                100.0f,
+                100.0f);
+
+        Opening.MaxCm =
+            FVector2D(
+                300.0f,
+                300.0f);
+
+        TArray<FProximaFloorOpeningRect>
+            Openings;
+
+        Openings.Add(
+            Opening);
+
+        TArray<FVector2D>
+            CutVertices;
+
+        TArray<int32>
+            CutTriangles;
+
+        TestTrue(
+            TEXT(
+                "Automatic room floor builds around stair opening"),
+            AProximaRuntimeRoomFloor::
+                BuildSurfaceWithOpenings(
+                    Square,
+                    Openings,
+                    CutVertices,
+                    CutTriangles));
+
+        double TriangulatedArea =
+            0.0;
+
+        for (int32 Index = 0;
+             Index <
+                 CutTriangles.Num();
+             Index += 3)
+        {
+            const FVector2D& A =
+                CutVertices[
+                    CutTriangles[
+                        Index]];
+
+            const FVector2D& B =
+                CutVertices[
+                    CutTriangles[
+                        Index + 1]];
+
+            const FVector2D& C =
+                CutVertices[
+                    CutTriangles[
+                        Index + 2]];
+
+            TriangulatedArea +=
+                FMath::Abs(
+                    (
+                        (B.X - A.X) *
+                            (C.Y - A.Y) -
+                        (B.Y - A.Y) *
+                            (C.X - A.X)
+                    ) *
+                    0.5);
+        }
+
+        TestTrue(
+            TEXT(
+                "Automatic room floor subtracts stair opening area"),
+            FMath::IsNearlyEqual(
+                TriangulatedArea,
+                120000.0,
+                0.1));
+
+        TArray<FProximaFloorOpeningRect>
+            SlabPieces;
+
+        TestTrue(
+            TEXT(
+                "Explicit slab splits around stair opening"),
+            AProximaRuntimeSlab::
+                BuildRectanglesWithOpenings(
+                    FVector2D(
+                        0.0f,
+                        0.0f),
+                    FVector2D(
+                        400.0f,
+                        400.0f),
+                    Openings,
+                    SlabPieces));
+
+        double SlabArea =
+            0.0;
+
+        for (const FProximaFloorOpeningRect& Piece :
+             SlabPieces)
+        {
+            SlabArea +=
+                static_cast<double>(
+                    Piece.MaxCm.X -
+                    Piece.MinCm.X) *
+                static_cast<double>(
+                    Piece.MaxCm.Y -
+                    Piece.MinCm.Y);
+        }
+
+        TestTrue(
+            TEXT(
+                "Explicit floor subtracts stair opening area"),
+            FMath::IsNearlyEqual(
+                SlabArea,
+                120000.0,
+                0.1));
     }
 
     return true;

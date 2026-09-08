@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Building/ProximaRoomData.h"
+#include "Building/ProximaStairData.h"
 #include "ProximaRuntimeRoomFloor.generated.h"
 
 class UMaterialInstanceDynamic;
@@ -19,7 +20,8 @@ public:
 
     bool InitializeFromData(
         const FProximaRoomData& Data,
-        float BaseElevationCm = 0.0f);
+        float BaseElevationCm = 0.0f,
+        const TArray<FProximaFloorOpeningRect>& Openings = {});
 
     FGuid GetRoomID() const
     {
@@ -40,6 +42,16 @@ public:
      */
     static bool MakeTwoSidedTriangles(
         const TArray<int32>& FrontTriangles,
+        TArray<int32>& OutTriangles);
+
+    /**
+     * Triangulates a room surface after subtracting rectangular stair holes.
+     * OutTriangles contains one front-facing winding.
+     */
+    static bool BuildSurfaceWithOpenings(
+        const TArray<FVector2D>& Polygon,
+        const TArray<FProximaFloorOpeningRect>& Openings,
+        TArray<FVector2D>& OutVertices,
         TArray<int32>& OutTriangles);
 
 private:

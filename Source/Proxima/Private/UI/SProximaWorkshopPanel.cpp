@@ -197,7 +197,10 @@ void SProximaWorkshopPanel::Construct(const FArguments& Args)
                         [SNew(SHorizontalBox)
                             + SHorizontalBox::Slot().FillWidth(1).Padding(0, 0, 3, 0)[ToolButton(EProximaBuildTool::Window, TEXT("5  Window"))]
                             + SHorizontalBox::Slot().FillWidth(1)[ToolButton(EProximaBuildTool::Floor, TEXT("6  Floor"))]]
-                        + SVerticalBox::Slot().AutoHeight()[ToolButton(EProximaBuildTool::Roof, TEXT("7  Flat roof"))]
+                        + SVerticalBox::Slot().AutoHeight()
+                        [SNew(SHorizontalBox)
+                            + SHorizontalBox::Slot().FillWidth(1).Padding(0, 0, 3, 0)[ToolButton(EProximaBuildTool::Roof, TEXT("7  Flat roof"))]
+                            + SHorizontalBox::Slot().FillWidth(1)[ToolButton(EProximaBuildTool::Stair, TEXT("8  Stair"))]]
                         + SVerticalBox::Slot().AutoHeight().Padding(0, 12, 0, 4)
                         [SNew(STextBlock).Text_Lambda([Weak]() { return FText::FromString(Weak.IsValid() ? Weak->GetToolName() : FString()); })
                             .Font(FCoreStyle::GetDefaultFontStyle("Bold", 15)).ColorAndOpacity(Mint)]
@@ -226,6 +229,11 @@ void SProximaWorkshopPanel::Construct(const FArguments& Args)
                         + SVerticalBox::Slot().AutoHeight()
                         [SNew(SVerticalBox).Visibility_Lambda([Show]() { return Show({EProximaBuildTool::Window}); })
                             + SVerticalBox::Slot().AutoHeight()[Field(TEXT("Sill height above floor"), TEXT("Sill"), [](const auto& W) { return W.SillCm; })]]
+                        + SVerticalBox::Slot().AutoHeight()
+                        [SNew(SVerticalBox).Visibility_Lambda([Show]() { return Show({EProximaBuildTool::Stair}); })
+                            + SVerticalBox::Slot().AutoHeight()[Caption(TEXT("Straight stair connects the active level to the level above."))]
+                            + SVerticalBox::Slot().AutoHeight()[Field(TEXT("Stair width"), TEXT("StairWidth"), [](const auto& W) { return W.StairWidthCm; })]
+                            + SVerticalBox::Slot().AutoHeight()[Field(TEXT("Horizontal run"), TEXT("StairRun"), [](const auto& W) { return W.StairRunCm; })]]
                         + SVerticalBox::Slot().AutoHeight().Padding(0, 12, 0, 4)
                         [SNew(SButton).IsFocusable(false).ContentPadding(8)
                             .OnClicked_Lambda([Weak]() { if (Weak.IsValid()) { Weak->CycleGrid(); } return FReply::Handled(); })

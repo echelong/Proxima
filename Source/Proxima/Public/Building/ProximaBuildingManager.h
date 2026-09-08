@@ -5,6 +5,7 @@
 #include "Building/ProximaWallData.h"
 #include "Building/ProximaSlabData.h"
 #include "Building/ProximaRoomData.h"
+#include "Building/ProximaStairData.h"
 #include "Building/ProximaPropertyData.h"
 #include "ProximaBuildingManager.generated.h"
 
@@ -57,6 +58,13 @@ public:
     const TArray<FProximaSlabData>& GetSlabsView() const { return Slabs; }
     const TArray<FProximaRoomData>& GetRoomsView() const { return Rooms; }
     const TArray<FProximaFloorData>& GetFloorsView() const { return Floors; }
+    const TArray<FProximaStairData>& GetStairsView() const { return Stairs; }
+
+    UFUNCTION(BlueprintPure, Category = "Proxima|Building")
+    TArray<FProximaStairData> GetAllStairs() const
+    {
+        return Stairs;
+    }
 
     UFUNCTION(BlueprintPure, Category = "Proxima|Building")
     TArray<FProximaFloorData> GetAllFloors() const
@@ -100,6 +108,12 @@ public:
         const TArray<FProximaSlabData>& NewSlabs,
         const TArray<FProximaFloorData>& NewFloors);
 
+    bool ReplaceModel(
+        const TArray<FProximaWallData>& NewWalls,
+        const TArray<FProximaSlabData>& NewSlabs,
+        const TArray<FProximaFloorData>& NewFloors,
+        const TArray<FProximaStairData>& NewStairs);
+
     static bool ValidateModel(
         const TArray<FProximaWallData>& NewWalls,
         const TArray<FProximaSlabData>& NewSlabs);
@@ -130,6 +144,9 @@ private:
 
     UPROPERTY(Transient)
     TArray<FProximaFloorData> Floors;
+
+    UPROPERTY(Transient)
+    TArray<FProximaStairData> Stairs;
 
     TMap<FGuid, int32> WallIdToIndex;
     FProximaWallsChanged WallsChanged;

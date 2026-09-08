@@ -4,19 +4,21 @@
 #include "Components/ActorComponent.h"
 #include "Building/ProximaWallData.h"
 #include "Building/ProximaSlabData.h"
+#include "Building/ProximaStairData.h"
 #include "ProximaWorkshopComponent.generated.h"
 
 class AProximaPlayerController;
 class AProximaRuntimeWall;
 class AProximaRuntimeSlab;
 class AProximaRuntimeRoomFloor;
+class AProximaRuntimeStair;
 class AProximaWallPreview;
 class UProximaWallPlacementSession;
 class UProximaBuildingManager;
 class SProximaWorkshopPanel;
 
 UENUM()
-enum class EProximaBuildTool : uint8 { Select, Wall, Room, Door, Window, Floor, Roof };
+enum class EProximaBuildTool : uint8 { Select, Wall, Room, Door, Window, Floor, Roof, Stair };
 
 /** Local construction interaction and transient representations, separate from the persistent model. */
 UCLASS()
@@ -89,6 +91,13 @@ public:
     float OpeningWidthCm = 90.0f;
     float OpeningHeightCm = 210.0f;
     float SillCm = 90.0f;
+
+    /** Straight stair clear width. */
+    float StairWidthCm = 100.0f;
+
+    /** Horizontal run from lower entrance to upper entrance. */
+    float StairRunCm = 420.0f;
+
     float GridCm = 10.0f;
     bool bAngleLock = true;
     bool bShowRoofs = false;
@@ -134,8 +143,24 @@ private:
         TArray<FVector2D>& OutChainPointsCm,
         float ToleranceCm) const;
     void RectangleBounds(FVector2D& Min, FVector2D& Max) const;
-    bool CommitModel(const TArray<FProximaWallData>& Walls, const TArray<FProximaSlabData>& Slabs);
+
+    FVector2D ResolveStairEnd() const;
+
+    TArray<FProximaFloorOpeningRect>
+    GetFloorOpenings(
+        const FProximaFloorID& FloorId) const;
+
+    bool CommitModel(
+        const TArray<FProximaWallData>& Walls,
+        const TArray<FProximaSlabData>& Slabs);
+
+    bool CommitModel(
+        const TArray<FProximaWallData>& Walls,
+        const TArray<FProximaSlabData>& Slabs,
+        const TArray<FProximaStairData>& Stairs);
+
     void CommitRectangle();
+    void CommitStair();
     void SelectAtCursor();
 
     UPROPERTY()
@@ -149,10 +174,14 @@ private:
     TMap<FGuid, TObjectPtr<AProximaRuntimeRoomFloor>> RoomFloors;
 
     UPROPERTY()
+    TMap<FGuid, TObjectPtr<AProximaRuntimeStair>> Stairs;
+
+    UPROPERTY()
     TArray<TObjectPtr<AProximaWallPreview>> Previews;
     TSharedPtr<SProximaWorkshopPanel> Panel;
     FProximaWallID SelectedWall;
     FGuid SelectedSlab;
+    FGuid SelectedStair;
     FName Finish = TEXT("Proxima.Wall.Plaster");
     EProximaBuildTool Tool = EProximaBuildTool::Wall;
     FVector2D Anchor = FVector2D::ZeroVector;

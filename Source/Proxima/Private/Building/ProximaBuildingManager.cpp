@@ -90,6 +90,24 @@ bool ValidateProximaFloors(
     return true;
 }
 
+const FProximaFloorData* FindFloorById(
+    const TArray<FProximaFloorData>& Floors,
+    const FProximaFloorID& FloorId)
+{
+    for (const FProximaFloorData& Floor :
+         Floors)
+    {
+        if (Floor.FloorId ==
+            FloorId)
+        {
+            return
+                &Floor;
+        }
+    }
+
+    return nullptr;
+}
+
 const FProximaFloorData* FindGroundFloor(
     const TArray<FProximaFloorData>& Floors)
 {
@@ -552,6 +570,7 @@ void UProximaBuildingManager::ResetWalls()
     Walls.Reset();
     Slabs.Reset();
     Rooms.Reset();
+    Stairs.Reset();
 
     Floors =
         MakeDefaultProximaFloors();
@@ -617,6 +636,19 @@ bool UProximaBuildingManager::ReplaceModel(
     const TArray<FProximaSlabData>& NewSlabs,
     const TArray<FProximaFloorData>& NewFloors)
 {
+    return ReplaceModel(
+        NewWalls,
+        NewSlabs,
+        NewFloors,
+        Stairs);
+}
+
+bool UProximaBuildingManager::ReplaceModel(
+    const TArray<FProximaWallData>& NewWalls,
+    const TArray<FProximaSlabData>& NewSlabs,
+    const TArray<FProximaFloorData>& NewFloors,
+    const TArray<FProximaStairData>& NewStairs)
+{
     if (!ValidateModel(
             NewWalls,
             NewSlabs))
@@ -641,6 +673,97 @@ bool UProximaBuildingManager::ReplaceModel(
             EffectiveFloors))
     {
         return false;
+    }
+
+    if (NewStairs.Num() > 128)
+    {
+        return false;
+    }
+
+    TSet<FGuid> StairIds;
+
+    for (int32 StairIndex = 0;
+         StairIndex < NewStairs.Num();
+         ++StairIndex)
+    {
+        const FProximaStairData& Stair =
+            NewStairs[
+                StairIndex];
+
+        if (!Stair.IsValid() ||
+            StairIds.Contains(
+                Stair.StairId))
+        {
+            return false;
+        }
+
+        StairIds.Add(
+            Stair.StairId);
+
+        const FProximaFloorData* LowerFloor =
+            FindFloorById(
+                EffectiveFloors,
+                Stair.LowerFloorId);
+
+        const FProximaFloorData* UpperFloor =
+            FindFloorById(
+                EffectiveFloors,
+                Stair.UpperFloorId);
+
+        if (!LowerFloor ||
+            !UpperFloor ||
+            UpperFloor->LevelIndex !=
+                LowerFloor->LevelIndex + 1 ||
+            UpperFloor->BaseElevationCm <=
+                LowerFloor->BaseElevationCm +
+                100.0f)
+        {
+            return false;
+        }
+
+        const FProximaFloorOpeningRect Bounds =
+            Stair.GetOpeningRect();
+
+        if (!Bounds.IsValid())
+        {
+            return false;
+        }
+
+        for (int32 OtherIndex = 0;
+             OtherIndex < StairIndex;
+             ++OtherIndex)
+        {
+            const FProximaStairData& Other =
+                NewStairs[
+                    OtherIndex];
+
+            if (!(Other.LowerFloorId ==
+                  Stair.LowerFloorId))
+            {
+                continue;
+            }
+
+            const FProximaFloorOpeningRect
+                OtherBounds =
+                    Other.GetOpeningRect();
+
+            if (ProximaGeometry::Overlaps(
+                    {
+                        Bounds.MinCm.X,
+                        Bounds.MinCm.Y,
+                        Bounds.MaxCm.X,
+                        Bounds.MaxCm.Y
+                    },
+                    {
+                        OtherBounds.MinCm.X,
+                        OtherBounds.MinCm.Y,
+                        OtherBounds.MaxCm.X,
+                        OtherBounds.MaxCm.Y
+                    }))
+            {
+                return false;
+            }
+        }
     }
 
     const FProximaFloorData* GroundFloor =
@@ -729,6 +852,9 @@ bool UProximaBuildingManager::ReplaceModel(
     Floors =
         MoveTemp(
             EffectiveFloors);
+
+    Stairs =
+        NewStairs;
 
     RebuildWallIndex();
     BroadcastWallsChanged();

@@ -5,6 +5,7 @@
 #include "Building/ProximaPropertyData.h"
 #include "Building/ProximaWallData.h"
 #include "Building/ProximaSlabData.h"
+#include "Building/ProximaStairData.h"
 #include "Systems/Measurement/ProximaMeasurementSubsystem.h"
 #include "ProximaSaveData.generated.h"
 
@@ -61,4 +62,7 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, SaveGame)
     TArray<FProximaSlabData> Slabs;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, SaveGame)
+    TArray<FProximaStairData> Stairs;
 };

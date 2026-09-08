@@ -82,6 +82,270 @@ bool PointInsideOrOnTriangle(
         CA >= -Tolerance;
 }
 
+enum class EOpeningBoundary : uint8
+{
+    Left,
+    Right,
+    Bottom,
+    Top
+};
+
+bool IsInsideBoundary(
+    const FVector2D& Point,
+    EOpeningBoundary Boundary,
+    float Value)
+{
+    constexpr float Tolerance =
+        0.001f;
+
+    switch (Boundary)
+    {
+    case EOpeningBoundary::Left:
+        return
+            Point.X >=
+            Value -
+            Tolerance;
+
+    case EOpeningBoundary::Right:
+        return
+            Point.X <=
+            Value +
+            Tolerance;
+
+    case EOpeningBoundary::Bottom:
+        return
+            Point.Y >=
+            Value -
+            Tolerance;
+
+    case EOpeningBoundary::Top:
+        return
+            Point.Y <=
+            Value +
+            Tolerance;
+    }
+
+    return false;
+}
+
+FVector2D IntersectBoundary(
+    const FVector2D& A,
+    const FVector2D& B,
+    EOpeningBoundary Boundary,
+    float Value)
+{
+    const FVector2D Delta =
+        B -
+        A;
+
+    double T =
+        0.0;
+
+    if (Boundary ==
+            EOpeningBoundary::Left ||
+        Boundary ==
+            EOpeningBoundary::Right)
+    {
+        if (!FMath::IsNearlyZero(
+                Delta.X))
+        {
+            T =
+                (
+                    static_cast<double>(
+                        Value) -
+                    A.X
+                ) /
+                Delta.X;
+        }
+    }
+    else
+    {
+        if (!FMath::IsNearlyZero(
+                Delta.Y))
+        {
+            T =
+                (
+                    static_cast<double>(
+                        Value) -
+                    A.Y
+                ) /
+                Delta.Y;
+        }
+    }
+
+    T =
+        FMath::Clamp(
+            T,
+            0.0,
+            1.0);
+
+    return
+        A +
+        Delta *
+        T;
+}
+
+void SplitConvexPolygonByBoundary(
+    const TArray<FVector2D>& Polygon,
+    EOpeningBoundary Boundary,
+    float Value,
+    TArray<FVector2D>& OutInside,
+    TArray<FVector2D>& OutOutside)
+{
+    OutInside.Reset();
+    OutOutside.Reset();
+
+    if (Polygon.Num() < 3)
+    {
+        return;
+    }
+
+    FVector2D Previous =
+        Polygon.Last();
+
+    bool bPreviousInside =
+        IsInsideBoundary(
+            Previous,
+            Boundary,
+            Value);
+
+    for (const FVector2D& Current :
+         Polygon)
+    {
+        const bool bCurrentInside =
+            IsInsideBoundary(
+                Current,
+                Boundary,
+                Value);
+
+        if (bCurrentInside !=
+            bPreviousInside)
+        {
+            const FVector2D Intersection =
+                IntersectBoundary(
+                    Previous,
+                    Current,
+                    Boundary,
+                    Value);
+
+            OutInside.Add(
+                Intersection);
+
+            OutOutside.Add(
+                Intersection);
+        }
+
+        if (bCurrentInside)
+        {
+            OutInside.Add(
+                Current);
+        }
+        else
+        {
+            OutOutside.Add(
+                Current);
+        }
+
+        Previous =
+            Current;
+
+        bPreviousInside =
+            bCurrentInside;
+    }
+}
+
+void SubtractOpeningFromConvexPolygon(
+    const TArray<FVector2D>& Polygon,
+    const FProximaFloorOpeningRect& Opening,
+    TArray<TArray<FVector2D>>& OutPieces)
+{
+    OutPieces.Reset();
+
+    if (Polygon.Num() < 3 ||
+        !Opening.IsValid())
+    {
+        if (Polygon.Num() >= 3)
+        {
+            OutPieces.Add(
+                Polygon);
+        }
+
+        return;
+    }
+
+    TArray<TArray<FVector2D>>
+        Candidates;
+
+    Candidates.Add(
+        Polygon);
+
+    const EOpeningBoundary Boundaries[] = {
+        EOpeningBoundary::Left,
+        EOpeningBoundary::Right,
+        EOpeningBoundary::Bottom,
+        EOpeningBoundary::Top
+    };
+
+    const float Values[] = {
+        Opening.MinCm.X,
+        Opening.MaxCm.X,
+        Opening.MinCm.Y,
+        Opening.MaxCm.Y
+    };
+
+    for (int32 BoundaryIndex = 0;
+         BoundaryIndex < 4;
+         ++BoundaryIndex)
+    {
+        TArray<TArray<FVector2D>>
+            NextCandidates;
+
+        for (const TArray<FVector2D>& Candidate :
+             Candidates)
+        {
+            TArray<FVector2D> Inside;
+            TArray<FVector2D> Outside;
+
+            SplitConvexPolygonByBoundary(
+                Candidate,
+                Boundaries[
+                    BoundaryIndex],
+                Values[
+                    BoundaryIndex],
+                Inside,
+                Outside);
+
+            if (Outside.Num() >= 3)
+            {
+                OutPieces.Add(
+                    MoveTemp(
+                        Outside));
+            }
+
+            if (Inside.Num() >= 3)
+            {
+                NextCandidates.Add(
+                    MoveTemp(
+                        Inside));
+            }
+        }
+
+        Candidates =
+            MoveTemp(
+                NextCandidates);
+
+        if (Candidates.IsEmpty())
+        {
+            break;
+        }
+    }
+
+    /*
+     * Anything still in Candidates after all four boundaries lies inside
+     * the rectangular opening and is intentionally discarded.
+     */
+}
+
 }
 
 AProximaRuntimeRoomFloor::
@@ -345,9 +609,138 @@ MakeTwoSidedTriangles(
 }
 
 bool AProximaRuntimeRoomFloor::
+BuildSurfaceWithOpenings(
+    const TArray<FVector2D>& Polygon,
+    const TArray<FProximaFloorOpeningRect>& Openings,
+    TArray<FVector2D>& OutVertices,
+    TArray<int32>& OutTriangles)
+{
+    OutVertices.Reset();
+    OutTriangles.Reset();
+
+    TArray<int32> BaseTriangles;
+
+    if (!TriangulatePolygon(
+            Polygon,
+            BaseTriangles))
+    {
+        return false;
+    }
+
+    for (int32 TriangleIndex = 0;
+         TriangleIndex <
+             BaseTriangles.Num();
+         TriangleIndex += 3)
+    {
+        TArray<TArray<FVector2D>>
+            Pieces;
+
+        TArray<FVector2D> BaseTriangle;
+
+        BaseTriangle.Add(
+            Polygon[
+                BaseTriangles[
+                    TriangleIndex]]);
+
+        BaseTriangle.Add(
+            Polygon[
+                BaseTriangles[
+                    TriangleIndex + 1]]);
+
+        BaseTriangle.Add(
+            Polygon[
+                BaseTriangles[
+                    TriangleIndex + 2]]);
+
+        Pieces.Add(
+            MoveTemp(
+                BaseTriangle));
+
+        for (const FProximaFloorOpeningRect& Opening :
+             Openings)
+        {
+            if (!Opening.IsValid())
+            {
+                continue;
+            }
+
+            TArray<TArray<FVector2D>>
+                NextPieces;
+
+            for (const TArray<FVector2D>& Piece :
+                 Pieces)
+            {
+                TArray<TArray<FVector2D>>
+                    Subtracted;
+
+                SubtractOpeningFromConvexPolygon(
+                    Piece,
+                    Opening,
+                    Subtracted);
+
+                NextPieces.Append(
+                    MoveTemp(
+                        Subtracted));
+            }
+
+            Pieces =
+                MoveTemp(
+                    NextPieces);
+
+            if (Pieces.IsEmpty())
+            {
+                break;
+            }
+        }
+
+        for (const TArray<FVector2D>& Piece :
+             Pieces)
+        {
+            if (Piece.Num() < 3)
+            {
+                continue;
+            }
+
+            const int32 BaseVertex =
+                OutVertices.Num();
+
+            OutVertices.Append(
+                Piece);
+
+            /*
+             * Clipping a triangle by axis-aligned half-planes keeps every
+             * resulting piece convex, so a fan is deterministic.
+             */
+            for (int32 Index = 1;
+                 Index + 1 <
+                     Piece.Num();
+                 ++Index)
+            {
+                OutTriangles.Add(
+                    BaseVertex);
+
+                OutTriangles.Add(
+                    BaseVertex +
+                    Index);
+
+                OutTriangles.Add(
+                    BaseVertex +
+                    Index +
+                    1);
+            }
+        }
+    }
+
+    return
+        !OutVertices.IsEmpty() &&
+        !OutTriangles.IsEmpty();
+}
+
+bool AProximaRuntimeRoomFloor::
 InitializeFromData(
     const FProximaRoomData& Data,
-    float BaseElevationCm)
+    float BaseElevationCm,
+    const TArray<FProximaFloorOpeningRect>& Openings)
 {
     if (!Mesh ||
         !Data.IsValid())
@@ -355,11 +748,17 @@ InitializeFromData(
         return false;
     }
 
-    TArray<int32> Triangles;
+    TArray<FVector2D>
+        SurfaceVerticesCm;
 
-    if (!TriangulatePolygon(
+    TArray<int32>
+        FrontTriangles;
+
+    if (!BuildSurfaceWithOpenings(
             Data.VerticesCm,
-            Triangles))
+            Openings,
+            SurfaceVerticesCm,
+            FrontTriangles))
     {
         return false;
     }
@@ -367,7 +766,7 @@ InitializeFromData(
     TArray<int32> RenderTriangles;
 
     if (!MakeTwoSidedTriangles(
-            Triangles,
+            FrontTriangles,
             RenderTriangles))
     {
         return false;
@@ -389,22 +788,22 @@ InitializeFromData(
     TArray<FProcMeshTangent> Tangents;
 
     Vertices.Reserve(
-        Data.VerticesCm.Num());
+        SurfaceVerticesCm.Num());
 
     Normals.Reserve(
-        Data.VerticesCm.Num());
+        SurfaceVerticesCm.Num());
 
     UV0.Reserve(
-        Data.VerticesCm.Num());
+        SurfaceVerticesCm.Num());
 
     Colors.Reserve(
-        Data.VerticesCm.Num());
+        SurfaceVerticesCm.Num());
 
     Tangents.Reserve(
-        Data.VerticesCm.Num());
+        SurfaceVerticesCm.Num());
 
     for (const FVector2D& Point :
-         Data.VerticesCm)
+         SurfaceVerticesCm)
     {
         Vertices.Add(
             FVector(

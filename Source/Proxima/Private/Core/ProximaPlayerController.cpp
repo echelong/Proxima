@@ -63,6 +63,7 @@ void AProximaPlayerController::SetupInputComponent()
     InputComponent->BindKey(EKeys::Five, IE_Pressed, this, &AProximaPlayerController::WindowTool);
     InputComponent->BindKey(EKeys::Six, IE_Pressed, this, &AProximaPlayerController::FloorTool);
     InputComponent->BindKey(EKeys::Seven, IE_Pressed, this, &AProximaPlayerController::RoofTool);
+    InputComponent->BindKey(EKeys::Eight, IE_Pressed, this, &AProximaPlayerController::StairTool);
     InputComponent->BindKey(EKeys::O, IE_Pressed, this, &AProximaPlayerController::DoorTool);
 }
 bool AProximaPlayerController::IsBuildModeActive() const
@@ -213,6 +214,7 @@ void AProximaPlayerController::DoorTool() { if (IsBuildModeActive()) { Workshop-
 void AProximaPlayerController::WindowTool() { if (IsBuildModeActive()) { Workshop->SelectTool(EProximaBuildTool::Window); } }
 void AProximaPlayerController::FloorTool() { if (IsBuildModeActive()) { Workshop->SelectTool(EProximaBuildTool::Floor); } }
 void AProximaPlayerController::RoofTool() { if (IsBuildModeActive()) { Workshop->SelectTool(EProximaBuildTool::Roof); } }
+void AProximaPlayerController::StairTool() { if (IsBuildModeActive()) { Workshop->SelectTool(EProximaBuildTool::Stair); } }
 void AProximaPlayerController::BeginWallPlacement() { if (!IsBuildModeActive()) { ToggleBuildMode(); } WallTool(); }
 void AProximaPlayerController::CancelWallPlacement() { HandleCancel(); }
 void AProximaPlayerController::ConfirmWallPlacement() { HandlePrimary(); }

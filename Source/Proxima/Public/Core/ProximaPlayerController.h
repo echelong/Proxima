@@ -67,4 +67,5 @@ private:
     void WindowTool();
     void FloorTool();
     void RoofTool();
+    void StairTool();
 };

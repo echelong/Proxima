@@ -241,17 +241,68 @@ bool FProximaSaveLoadRoundTripTest::RunTest(const FString& Parameters)
         TEXT("Copied floor surface rises to Level 2"),
         bFoundLevel2Surface);
 
+    FProximaStairData TestStair;
+
+    TestStair.StairId =
+        FGuid::NewGuid();
+
+    TestStair.LowerFloorId =
+        Level1.FloorId;
+
+    TestStair.UpperFloorId =
+        Level2.FloorId;
+
+    TestStair.StartCm =
+        FVector2D(
+            100.0f,
+            50.0f);
+
+    TestStair.EndCm =
+        FVector2D(
+            100.0f,
+            350.0f);
+
+    TestStair.WidthCm =
+        90.0f;
+
+    TestTrue(
+        TEXT("Test stair is valid"),
+        TestStair.IsValid());
+
+    TArray<FProximaStairData> TestStairs;
+    TestStairs.Add(
+        TestStair);
+
+    TestTrue(
+        TEXT("Manager accepts persistent stair"),
+        Manager->ReplaceModel(
+            Manager->GetWallsView(),
+            Manager->GetSlabsView(),
+            Manager->GetFloorsView(),
+            TestStairs));
+
+    TestEqual(
+        TEXT("Manager stores one stair"),
+        Manager->GetStairsView().Num(),
+        1);
+
     UProximaSaveSystem* SaveSystem = NewObject<UProximaSaveSystem>(TestGameInstance.Get());
     UProximaSaveData* SaveData = NewObject<UProximaSaveData>();
     SaveData->Walls = Manager->GetAllWalls();
     SaveData->Slabs = Manager->GetSlabsView();
     SaveData->Floors = Manager->GetFloorsView();
+    SaveData->Stairs = Manager->GetStairsView();
 
     TestTrue(TEXT("SaveData holds 2 walls"), SaveData->Walls.Num() == 2);
 
     TestEqual(
         TEXT("SaveData holds one explicit floor surface"),
         SaveData->Slabs.Num(),
+        1);
+
+    TestEqual(
+        TEXT("SaveData holds one stair"),
+        SaveData->Stairs.Num(),
         1);
 
     TestEqual(
@@ -289,6 +340,26 @@ bool FProximaSaveLoadRoundTripTest::RunTest(const FString& Parameters)
         TEXT("Loaded save preserves explicit floor surface"),
         LoadedData->Slabs.Num(),
         1);
+
+    TestEqual(
+        TEXT("Loaded save preserves stair"),
+        LoadedData->Stairs.Num(),
+        1);
+
+    if (LoadedData->Stairs.Num() == 1)
+    {
+        TestTrue(
+            TEXT("Loaded stair GUID is preserved"),
+            LoadedData->Stairs[0].StairId ==
+                TestStair.StairId);
+
+        TestTrue(
+            TEXT("Loaded stair floor scope is preserved"),
+            LoadedData->Stairs[0].LowerFloorId ==
+                Level1.FloorId &&
+            LoadedData->Stairs[0].UpperFloorId ==
+                Level2.FloorId);
+    }
 
     TestEqual(
         TEXT("Loaded save preserves three storeys"),
@@ -340,7 +411,8 @@ bool FProximaSaveLoadRoundTripTest::RunTest(const FString& Parameters)
         Manager->ReplaceModel(
             LoadedData->Walls,
             LoadedData->Slabs,
-            LoadedData->Floors));
+            LoadedData->Floors,
+            LoadedData->Stairs));
     TestTrue(TEXT("Manager reconstructed with 2 walls"), Manager->GetAllWalls().Num() == 2);
 
     FProximaWallData ReconA, ReconB;

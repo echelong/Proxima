@@ -4,6 +4,7 @@
 #include "BuildMode/ProximaRuntimeWall.h"
 #include "BuildMode/ProximaRuntimeSlab.h"
 #include "BuildMode/ProximaRuntimeRoomFloor.h"
+#include "BuildMode/ProximaRuntimeStair.h"
 #include "BuildMode/ProximaWallPreview.h"
 #include "BuildMode/ProximaWallPlacementSession.h"
 #include "BuildMode/ProximaWallSnapping.h"
@@ -62,6 +63,7 @@ void UProximaWorkshopComponent::EndPlay(const EEndPlayReason::Type Reason)
     for (auto& Pair : Walls) { if (IsValid(Pair.Value)) { Pair.Value->Destroy(); } }
     for (auto& Pair : Slabs) { if (IsValid(Pair.Value)) { Pair.Value->Destroy(); } }
     for (auto& Pair : RoomFloors) { if (IsValid(Pair.Value)) { Pair.Value->Destroy(); } }
+    for (auto& Pair : Stairs) { if (IsValid(Pair.Value)) { Pair.Value->Destroy(); } }
     for (AProximaWallPreview* Preview : Previews) { if (IsValid(Preview)) { Preview->Destroy(); } }
     Super::EndPlay(Reason);
 }
@@ -84,7 +86,16 @@ void UProximaWorkshopComponent::Cancel()
 void UProximaWorkshopComponent::SelectTool(EProximaBuildTool Value)
 {
     Tool = Value;
-    if (Value != EProximaBuildTool::Select) { SelectedWall = FProximaWallID(); SelectedSlab.Invalidate(); RefreshSelection(); }
+    if (Value != EProximaBuildTool::Select)
+    {
+        SelectedWall =
+            FProximaWallID();
+
+        SelectedSlab.Invalidate();
+        SelectedStair.Invalidate();
+
+        RefreshSelection();
+    }
     Cancel();
     if (Tool == EProximaBuildTool::Door) { OpeningWidthCm = 90.0f; OpeningHeightCm = 210.0f; }
     if (Tool == EProximaBuildTool::Window) { OpeningWidthCm = 140.0f; OpeningHeightCm = 120.0f; }
@@ -485,6 +496,74 @@ bool UProximaWorkshopComponent::FindResumableEndpoint(
     }
 
     return bFound;
+}
+
+FVector2D UProximaWorkshopComponent::ResolveStairEnd() const
+{
+    FVector2D Delta =
+        Cursor -
+        Anchor;
+
+    if (Delta.IsNearlyZero())
+    {
+        Delta =
+            FVector2D(
+                1.0f,
+                0.0f);
+    }
+
+    if (FMath::Abs(Delta.X) >=
+        FMath::Abs(Delta.Y))
+    {
+        return
+            Anchor +
+            FVector2D(
+                Delta.X >= 0.0f
+                    ? StairRunCm
+                    : -StairRunCm,
+                0.0f);
+    }
+
+    return
+        Anchor +
+        FVector2D(
+            0.0f,
+            Delta.Y >= 0.0f
+                ? StairRunCm
+                : -StairRunCm);
+}
+
+TArray<FProximaFloorOpeningRect>
+UProximaWorkshopComponent::GetFloorOpenings(
+    const FProximaFloorID& FloorId) const
+{
+    TArray<FProximaFloorOpeningRect>
+        Result;
+
+    if (!Model() ||
+        !FloorId.IsValid())
+    {
+        return Result;
+    }
+
+    for (const FProximaStairData& Stair :
+         Model()->GetStairsView())
+    {
+        if (Stair.UpperFloorId ==
+            FloorId)
+        {
+            const FProximaFloorOpeningRect Opening =
+                Stair.GetOpeningRect();
+
+            if (Opening.IsValid())
+            {
+                Result.Add(
+                    Opening);
+            }
+        }
+    }
+
+    return Result;
 }
 
 void UProximaWorkshopComponent::RectangleBounds(FVector2D& Min, FVector2D& Max) const
@@ -1028,6 +1107,159 @@ void UProximaWorkshopComponent::UpdatePreview()
                         Resume);
             }
         }
+    }
+    else if (
+        Tool == EProximaBuildTool::Stair &&
+        bAnchored)
+    {
+        FProximaFloorData UpperFloor;
+
+        const bool bHasUpperFloor =
+            Model()->TryGetFloorByLevelIndex(
+                ActiveLevelIndex + 1,
+                UpperFloor);
+
+        const FVector2D StairEnd =
+            ResolveStairEnd();
+
+        FProximaStairData Candidate;
+
+        Candidate.StairId =
+            FGuid(
+                1,
+                0,
+                0,
+                4);
+
+        Candidate.LowerFloorId =
+            GetActiveFloorId();
+
+        Candidate.UpperFloorId =
+            bHasUpperFloor
+                ? UpperFloor.FloorId
+                : FProximaFloorID();
+
+        Candidate.StartCm =
+            Anchor;
+
+        Candidate.EndCm =
+            StairEnd;
+
+        Candidate.WidthCm =
+            StairWidthCm;
+
+        bPreviewValid =
+            bHasUpperFloor &&
+            Candidate.IsValid();
+
+        if (bPreviewValid)
+        {
+            const FProximaFloorOpeningRect Bounds =
+                Candidate.GetOpeningRect();
+
+            for (const FProximaStairData& Existing :
+                 Model()->GetStairsView())
+            {
+                if (!(Existing.LowerFloorId ==
+                      Candidate.LowerFloorId))
+                {
+                    continue;
+                }
+
+                const FProximaFloorOpeningRect
+                    ExistingBounds =
+                        Existing.GetOpeningRect();
+
+                if (ProximaGeometry::Overlaps(
+                        {
+                            Bounds.MinCm.X,
+                            Bounds.MinCm.Y,
+                            Bounds.MaxCm.X,
+                            Bounds.MaxCm.Y
+                        },
+                        {
+                            ExistingBounds.MinCm.X,
+                            ExistingBounds.MinCm.Y,
+                            ExistingBounds.MaxCm.X,
+                            ExistingBounds.MaxCm.Y
+                        }))
+                {
+                    bPreviewValid =
+                        false;
+
+                    break;
+                }
+            }
+        }
+
+        ShowPreview(
+            0,
+            Anchor,
+            StairEnd,
+            12.0f,
+            StairWidthCm,
+            0.0f,
+            bPreviewValid);
+
+        Status =
+            bHasUpperFloor
+                ? FString::Printf(
+                    TEXT(
+                        "Straight stair to Level %d | "
+                        "%.2f m run x %.2f m wide"),
+                    ActiveLevelIndex + 2,
+                    StairRunCm /
+                        100.0f,
+                    StairWidthCm /
+                        100.0f)
+                : TEXT(
+                    "No higher storey is available.");
+    }
+    else if (Tool == EProximaBuildTool::Stair)
+    {
+        FProximaFloorData UpperFloor;
+
+        if (!Model()->TryGetFloorByLevelIndex(
+                ActiveLevelIndex + 1,
+                UpperFloor))
+        {
+            Status =
+                TEXT(
+                    "Stairs need a level above the active storey.");
+
+            return;
+        }
+
+        if (!bAnchored)
+        {
+            Anchor =
+                Cursor;
+
+            bAnchored =
+                true;
+
+            Status =
+                FString::Printf(
+                    TEXT(
+                        "Stair start placed on Level %d. "
+                        "Move the cursor to choose ascent direction, "
+                        "then click again."),
+                    ActiveLevelIndex + 1);
+
+            return;
+        }
+
+        if (!bPreviewValid)
+        {
+            Status =
+                TEXT(
+                    "Choose a valid stair position. "
+                    "Stairs cannot overlap another stair flight.");
+
+            return;
+        }
+
+        CommitStair();
     }
     else if (Tool == EProximaBuildTool::Door || Tool == EProximaBuildTool::Window)
     {
@@ -1615,6 +1847,125 @@ bool UProximaWorkshopComponent::CommitModel(const TArray<FProximaWallData>& NewW
     Command->AfterSlabs = NewSlabs;
     return Commands->ExecuteCommand(Command);
 }
+bool UProximaWorkshopComponent::CommitModel(
+    const TArray<FProximaWallData>& NewWalls,
+    const TArray<FProximaSlabData>& NewSlabs,
+    const TArray<FProximaStairData>& NewStairs)
+{
+    UProximaCommandManager* Commands =
+        Controller()->
+        GetGameInstance()->
+        GetSubsystem<
+            UProximaCommandManager>();
+
+    if (!Commands)
+    {
+        return false;
+    }
+
+    UProximaModelCommand* Command =
+        NewObject<
+            UProximaModelCommand>(
+                Commands);
+
+    Command->AfterWalls =
+        NewWalls;
+
+    Command->AfterSlabs =
+        NewSlabs;
+
+    Command->AfterStairs =
+        NewStairs;
+
+    Command->bReplaceStairs =
+        true;
+
+    return
+        Commands->ExecuteCommand(
+            Command);
+}
+
+void UProximaWorkshopComponent::CommitStair()
+{
+    if (!Model())
+    {
+        return;
+    }
+
+    FProximaFloorData UpperFloor;
+
+    if (!Model()->TryGetFloorByLevelIndex(
+            ActiveLevelIndex + 1,
+            UpperFloor))
+    {
+        Status =
+            TEXT(
+                "No upper level exists for this stair.");
+
+        return;
+    }
+
+    FProximaStairData Stair;
+
+    Stair.StairId =
+        FGuid::NewGuid();
+
+    Stair.LowerFloorId =
+        GetActiveFloorId();
+
+    Stair.UpperFloorId =
+        UpperFloor.FloorId;
+
+    Stair.StartCm =
+        Anchor;
+
+    Stair.EndCm =
+        ResolveStairEnd();
+
+    Stair.WidthCm =
+        StairWidthCm;
+
+    if (!Stair.IsValid())
+    {
+        Status =
+            TEXT(
+                "The stair dimensions are invalid.");
+
+        return;
+    }
+
+    TArray<FProximaStairData>
+        NewStairs =
+            Model()->GetStairsView();
+
+    NewStairs.Add(
+        Stair);
+
+    if (!CommitModel(
+            Model()->GetWallsView(),
+            Model()->GetSlabsView(),
+            NewStairs))
+    {
+        Status =
+            TEXT(
+                "The stair conflicts with the current building. "
+                "No changes were made.");
+
+        return;
+    }
+
+    Cancel();
+
+    Status =
+        FString::Printf(
+            TEXT(
+                "Straight stair built from Level %d to Level %d. "
+                "The upper floor opening was created automatically. "
+                "Ctrl+Z removes both."),
+            ActiveLevelIndex + 1,
+            ActiveLevelIndex + 2);
+}
+
 void UProximaWorkshopComponent::CommitRectangle()
 {
     FVector2D Min, Max;
@@ -1693,8 +2044,11 @@ void UProximaWorkshopComponent::CommitRectangle()
 }
 void UProximaWorkshopComponent::SelectAtCursor()
 {
-    SelectedWall = FProximaWallID();
+    SelectedWall =
+        FProximaWallID();
+
     SelectedSlab.Invalidate();
+    SelectedStair.Invalidate();
     FProximaWallData Wall;
     float Along = 0.0f;
     if (FindWallAtCursor(Wall, Along)) { SelectedWall = Wall.WallId; }
@@ -1703,7 +2057,15 @@ void UProximaWorkshopComponent::SelectAtCursor()
         FHitResult Hit;
         if (Controller()->GetHitResultUnderCursor(ECC_Visibility, true, Hit))
         {
-            if (const AProximaRuntimeSlab* SlabActor =
+            if (const AProximaRuntimeStair* StairActor =
+                    Cast<AProximaRuntimeStair>(
+                        Hit.GetActor()))
+            {
+                SelectedStair =
+                    StairActor->
+                    GetStairID();
+            }
+            else if (const AProximaRuntimeSlab* SlabActor =
                     Cast<AProximaRuntimeSlab>(
                         Hit.GetActor()))
             {
@@ -1737,6 +2099,38 @@ void UProximaWorkshopComponent::DeleteSelection()
         UProximaDeleteWallCommand* Command = NewObject<UProximaDeleteWallCommand>(Commands);
         Command->WallId = SelectedWall;
         if (Commands->ExecuteCommand(Command)) { Cancel(); Status = TEXT("Wall deleted. Ctrl+Z restores it and its openings."); }
+    }
+    else if (SelectedStair.IsValid())
+    {
+        TArray<FProximaStairData> NewStairs =
+            Model()->GetStairsView();
+
+        const int32 Removed =
+            NewStairs.RemoveAll(
+                [this](
+                    const FProximaStairData& Stair)
+                {
+                    return
+                        Stair.StairId ==
+                        SelectedStair;
+                });
+
+        if (Removed == 1 &&
+            CommitModel(
+                Model()->GetWallsView(),
+                Model()->GetSlabsView(),
+                NewStairs))
+        {
+            Cancel();
+
+            SelectedStair.Invalidate();
+
+            Status =
+                TEXT(
+                    "Stair deleted. "
+                    "Its floor opening closed automatically. "
+                    "Ctrl+Z restores both.");
+        }
     }
     else if (SelectedSlab.IsValid())
     {
@@ -1778,6 +2172,7 @@ void UProximaWorkshopComponent::Save()
     Data->Walls = Model()->GetWallsView();
     Data->Slabs = Model()->GetSlabsView();
     Data->Floors = Model()->GetFloorsView();
+    Data->Stairs = Model()->GetStairsView();
     Data->Header.PropertyName = TEXT("My Proxima home");
     Status = Saves && Saves->SaveProperty(TEXT("DefaultSlot"), Data)
         ? TEXT("Home saved: walls, openings, floors and roofs.") : TEXT("Save failed. Your current layout remains in memory.");
@@ -1795,13 +2190,18 @@ void UProximaWorkshopComponent::Load()
         !Model()->ReplaceModel(
             Data->Walls,
             Data->Slabs,
-            Data->Floors))
+            Data->Floors,
+            Data->Stairs))
     {
         Status = TEXT("No valid saved home found. Your layout was kept.");
         return;
     }
     if (UProximaCommandManager* Commands = Controller()->GetGameInstance()->GetSubsystem<UProximaCommandManager>()) { Commands->ClearHistory(); }
-    Cancel(); SelectedWall = FProximaWallID(); SelectedSlab.Invalidate(); RefreshSelection();
+    Cancel();
+    SelectedWall = FProximaWallID();
+    SelectedSlab.Invalidate();
+    SelectedStair.Invalidate();
+    RefreshSelection();
     Status = TEXT("Saved home restored. A fresh undo history begins here.");
 }
 void UProximaWorkshopComponent::SetFinish(FName Value)
@@ -1824,9 +2224,12 @@ void UProximaWorkshopComponent::SyncModel()
     for (auto& Pair : Walls) { if (IsValid(Pair.Value)) { Pair.Value->Destroy(); } }
     for (auto& Pair : Slabs) { if (IsValid(Pair.Value)) { Pair.Value->Destroy(); } }
     for (auto& Pair : RoomFloors) { if (IsValid(Pair.Value)) { Pair.Value->Destroy(); } }
+    for (auto& Pair : Stairs) { if (IsValid(Pair.Value)) { Pair.Value->Destroy(); } }
+
     Walls.Reset();
     Slabs.Reset();
     RoomFloors.Reset();
+    Stairs.Reset();
     if (!Model() || !GetWorld()) { return; }
     FActorSpawnParameters Params;
     Params.Owner = GetOwner();
@@ -1869,7 +2272,17 @@ void UProximaWorkshopComponent::SyncModel()
     for (const FProximaSlabData& Slab : Model()->GetSlabsView())
     {
         AProximaRuntimeSlab* Actor = GetWorld()->SpawnActor<AProximaRuntimeSlab>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
-        if (Actor) { Actor->InitializeFromData(Slab); Slabs.Add(Slab.Id, Actor); }
+        if (Actor)
+        {
+            Actor->InitializeFromData(
+                Slab,
+                GetFloorOpenings(
+                    Slab.FloorId));
+
+            Slabs.Add(
+                Slab.Id,
+                Actor);
+        }
     }
 
     for (const FProximaRoomData& Room : Model()->GetRoomsView())
@@ -1924,6 +2337,8 @@ void UProximaWorkshopComponent::SyncModel()
             Actor->InitializeFromData(
                 Room,
                 Model()->GetFloorBaseElevation(
+                    Room.FloorId),
+                GetFloorOpenings(
                     Room.FloorId)))
         {
             RoomFloors.Add(
@@ -1935,6 +2350,47 @@ void UProximaWorkshopComponent::SyncModel()
             Actor->Destroy();
         }
     }
+    for (const FProximaStairData& Stair :
+         Model()->GetStairsView())
+    {
+        AProximaRuntimeStair* Actor =
+            GetWorld()->
+            SpawnActor<
+                AProximaRuntimeStair>(
+                    FVector::ZeroVector,
+                    FRotator::ZeroRotator,
+                    Params);
+
+        if (!Actor)
+        {
+            continue;
+        }
+
+        const bool bInitialized =
+            Actor->InitializeFromData(
+                Stair,
+                Model()->GetFloorBaseElevation(
+                    Stair.LowerFloorId),
+                Model()->GetFloorBaseElevation(
+                    Stair.UpperFloorId));
+
+        if (bInitialized)
+        {
+            Stairs.Add(
+                Stair.StairId,
+                Actor);
+        }
+        else
+        {
+            Actor->Destroy();
+        }
+    }
+
+    if (!Stairs.Contains(SelectedStair))
+    {
+        SelectedStair.Invalidate();
+    }
+
     if (!Walls.Contains(SelectedWall)) { SelectedWall = FProximaWallID(); }
     if (!Slabs.Contains(SelectedSlab)) { SelectedSlab.Invalidate(); }
     RefreshSelection(); RefreshRoofs();
@@ -1943,6 +2399,17 @@ void UProximaWorkshopComponent::RefreshSelection()
 {
     for (auto& Pair : Walls) { if (IsValid(Pair.Value)) { Pair.Value->SetSelected(bActive && Pair.Key == SelectedWall); } }
     for (auto& Pair : Slabs) { if (IsValid(Pair.Value)) { Pair.Value->SetSelected(bActive && Pair.Key == SelectedSlab); } }
+
+    for (auto& Pair : Stairs)
+    {
+        if (IsValid(Pair.Value))
+        {
+            Pair.Value->SetSelected(
+                bActive &&
+                Pair.Key ==
+                    SelectedStair);
+        }
+    }
 }
 void UProximaWorkshopComponent::RefreshLevelVisibility()
 {
@@ -2041,6 +2508,50 @@ void UProximaWorkshopComponent::RefreshLevelVisibility()
     }
 
     for (auto& Pair :
+         Stairs)
+    {
+        if (!IsValid(Pair.Value))
+        {
+            continue;
+        }
+
+        const FProximaStairData* Data =
+            nullptr;
+
+        for (const FProximaStairData& Stair :
+             Model()->GetStairsView())
+        {
+            if (Stair.StairId ==
+                Pair.Key)
+            {
+                Data =
+                    &Stair;
+
+                break;
+            }
+        }
+
+        const bool bVisible =
+            !bActive ||
+            bShowAllLevels ||
+            (
+                Data &&
+                (
+                    Data->LowerFloorId ==
+                        ActiveFloor ||
+                    Data->UpperFloorId ==
+                        ActiveFloor
+                )
+            );
+
+        Pair.Value->SetActorHiddenInGame(
+            !bVisible);
+
+        Pair.Value->SetActorEnableCollision(
+            bVisible);
+    }
+
+    for (auto& Pair :
          RoomFloors)
     {
         if (!IsValid(Pair.Value))
@@ -2116,6 +2627,8 @@ bool UProximaWorkshopComponent::SetDimension(FName Field, const FString& Text)
     if (Field == TEXT("OpeningWidth")) { Target = &OpeningWidthCm; Min = 10.0f; Max = 1000.0f; }
     if (Field == TEXT("OpeningHeight")) { Target = &OpeningHeightCm; Min = 10.0f; Max = 1000.0f; }
     if (Field == TEXT("Sill")) { Target = &SillCm; Min = 0.0f; Max = 1000.0f; }
+    if (Field == TEXT("StairWidth")) { Target = &StairWidthCm; Min = 60.0f; Max = 300.0f; }
+    if (Field == TEXT("StairRun")) { Target = &StairRunCm; Min = 150.0f; Max = 3000.0f; }
     if (!Target || Value < Min || Value > Max)
     {
         Status = FString::Printf(TEXT("Use a value between %.2f m and %.2f m."), Min / 100.0f, Max / 100.0f); return false;
@@ -2135,11 +2648,28 @@ FString UProximaWorkshopComponent::GetToolName() const
     case EProximaBuildTool::Window: return TEXT("Window");
     case EProximaBuildTool::Floor: return TEXT("Floor");
     case EProximaBuildTool::Roof: return TEXT("Flat roof");
+    case EProximaBuildTool::Stair: return TEXT("Straight stair");
     }
     return FString();
 }
 FString UProximaWorkshopComponent::GetReadout() const
 {
+    if (bAnchored &&
+        Tool ==
+            EProximaBuildTool::Stair)
+    {
+        return FString::Printf(
+            TEXT(
+                "Stair: %.2f m run x %.2f m wide | "
+                "Level %d -> Level %d"),
+            StairRunCm /
+                100.0f,
+            StairWidthCm /
+                100.0f,
+            ActiveLevelIndex + 1,
+            ActiveLevelIndex + 2);
+    }
+
     if (bAnchored)
     {
         FVector2D Min, Max;
@@ -2163,6 +2693,12 @@ FString UProximaWorkshopComponent::GetSelectionReadout() const
     {
         return FString::Printf(TEXT("Wall: %.2f m x %.2f m  |  %d openings"), Wall.GetLengthCm() / 100.0f, Wall.HeightCm / 100.0f, Wall.Openings.Num());
     }
+    if (SelectedStair.IsValid())
+    {
+        return TEXT(
+            "Stair selected. Delete removes the stair and closes its floor opening; Ctrl+Z restores both.");
+    }
+
     if (SelectedSlab.IsValid()) { return TEXT("Surface selected. Delete removes it; Ctrl+Z restores it."); }
     if (Model())
     {
