@@ -65,6 +65,51 @@ bool FProximaSaveLoadRoundTripTest::RunTest(const FString& Parameters)
     UProximaBuildingManager* Manager = NewObject<UProximaBuildingManager>(TestGameInstance.Get());
     Manager->ResetWalls();
 
+    TestEqual(
+        TEXT("Default model exposes three storeys"),
+        Manager->GetFloorsView().Num(),
+        3);
+
+    FProximaFloorData Level1;
+    FProximaFloorData Level2;
+    FProximaFloorData Level3;
+
+    TestTrue(
+        TEXT("Level 1 metadata exists"),
+        Manager->TryGetFloorByLevelIndex(
+            0,
+            Level1));
+
+    TestTrue(
+        TEXT("Level 2 metadata exists"),
+        Manager->TryGetFloorByLevelIndex(
+            1,
+            Level2));
+
+    TestTrue(
+        TEXT("Level 3 metadata exists"),
+        Manager->TryGetFloorByLevelIndex(
+            2,
+            Level3));
+
+    TestTrue(
+        TEXT("Level 1 base is 0m"),
+        FMath::IsNearlyEqual(
+            Level1.BaseElevationCm,
+            0.0f));
+
+    TestTrue(
+        TEXT("Level 2 base is 2.70m"),
+        FMath::IsNearlyEqual(
+            Level2.BaseElevationCm,
+            270.0f));
+
+    TestTrue(
+        TEXT("Level 3 base is 5.40m"),
+        FMath::IsNearlyEqual(
+            Level3.BaseElevationCm,
+            540.0f));
+
     Manager->AddWall(WallA);
     Manager->AddWall(WallB);
     TestTrue(TEXT("BuildingManager has 2 walls"), Manager->GetAllWalls().Num() == 2);
@@ -72,8 +117,13 @@ bool FProximaSaveLoadRoundTripTest::RunTest(const FString& Parameters)
     UProximaSaveSystem* SaveSystem = NewObject<UProximaSaveSystem>(TestGameInstance.Get());
     UProximaSaveData* SaveData = NewObject<UProximaSaveData>();
     SaveData->Walls = Manager->GetAllWalls();
+    SaveData->Floors = Manager->GetFloorsView();
 
     TestTrue(TEXT("SaveData holds 2 walls"), SaveData->Walls.Num() == 2);
+    TestEqual(
+        TEXT("SaveData holds three storeys"),
+        SaveData->Floors.Num(),
+        3);
     TestEqual(TEXT("SaveData header uses current save format"),
         SaveData->Header.Version, UProximaSerializationUtility::GetSaveFormatVersion());
 
@@ -100,6 +150,11 @@ bool FProximaSaveLoadRoundTripTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("Loaded save uses current save format"),
         LoadedData->Header.Version, UProximaSerializationUtility::GetSaveFormatVersion());
     TestTrue(TEXT("Loaded save has 2 walls"), LoadedData->Walls.Num() == 2);
+
+    TestEqual(
+        TEXT("Loaded save preserves three storeys"),
+        LoadedData->Floors.Num(),
+        3);
 
     // Locate walls by GUID (mirrors what HandleLoadProperty does in the controller)
     FProximaWallData LoadedA, LoadedB;
@@ -141,7 +196,12 @@ bool FProximaSaveLoadRoundTripTest::RunTest(const FString& Parameters)
 
     // Phase 6: Atomically reconstruct persistent state from loaded data.
     Manager->ResetWalls();
-    TestTrue(TEXT("ReplaceWalls accepts valid loaded state"), Manager->ReplaceWalls(LoadedData->Walls));
+    TestTrue(
+        TEXT("Floor-aware ReplaceModel accepts loaded state"),
+        Manager->ReplaceModel(
+            LoadedData->Walls,
+            LoadedData->Slabs,
+            LoadedData->Floors));
     TestTrue(TEXT("Manager reconstructed with 2 walls"), Manager->GetAllWalls().Num() == 2);
 
     FProximaWallData ReconA, ReconB;
@@ -167,6 +227,7 @@ bool FProximaSaveLoadRoundTripTest::RunTest(const FString& Parameters)
 
     UProximaSaveData* OverwriteData = NewObject<UProximaSaveData>();
     OverwriteData->Walls = Manager->GetAllWalls();
+    OverwriteData->Floors = Manager->GetFloorsView();
     const bool bOverwriteSave = SaveSystem->SaveProperty(TestSlot, OverwriteData);
     TestTrue(TEXT("Overwrite save succeeds"), bOverwriteSave);
 

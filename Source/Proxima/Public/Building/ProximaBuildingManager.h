@@ -5,6 +5,7 @@
 #include "Building/ProximaWallData.h"
 #include "Building/ProximaSlabData.h"
 #include "Building/ProximaRoomData.h"
+#include "Building/ProximaPropertyData.h"
 #include "ProximaBuildingManager.generated.h"
 
 DECLARE_MULTICAST_DELEGATE(FProximaWallsChanged);
@@ -55,13 +56,39 @@ public:
     const TArray<FProximaWallData>& GetWallsView() const { return Walls; }
     const TArray<FProximaSlabData>& GetSlabsView() const { return Slabs; }
     const TArray<FProximaRoomData>& GetRoomsView() const { return Rooms; }
+    const TArray<FProximaFloorData>& GetFloorsView() const { return Floors; }
+
+    UFUNCTION(BlueprintPure, Category = "Proxima|Building")
+    TArray<FProximaFloorData> GetAllFloors() const
+    {
+        return Floors;
+    }
+
+    UFUNCTION(BlueprintPure, Category = "Proxima|Building")
+    bool TryGetFloorByLevelIndex(
+        int32 LevelIndex,
+        FProximaFloorData& OutFloor) const;
+
+    UFUNCTION(BlueprintPure, Category = "Proxima|Building")
+    float GetFloorBaseElevation(
+        const FProximaFloorID& FloorId) const;
 
     UFUNCTION(BlueprintPure, Category = "Proxima|Building")
     TArray<FProximaRoomData> GetAllRooms() const { return Rooms; }
 
-    /** Validate before mutation; one notification covers walls and slabs together. */
-    bool ReplaceModel(const TArray<FProximaWallData>& NewWalls, const TArray<FProximaSlabData>& NewSlabs);
-    static bool ValidateModel(const TArray<FProximaWallData>& NewWalls, const TArray<FProximaSlabData>& NewSlabs);
+    /** Validate before mutation; one notification covers the complete building model. */
+    bool ReplaceModel(
+        const TArray<FProximaWallData>& NewWalls,
+        const TArray<FProximaSlabData>& NewSlabs);
+
+    bool ReplaceModel(
+        const TArray<FProximaWallData>& NewWalls,
+        const TArray<FProximaSlabData>& NewSlabs,
+        const TArray<FProximaFloorData>& NewFloors);
+
+    static bool ValidateModel(
+        const TArray<FProximaWallData>& NewWalls,
+        const TArray<FProximaSlabData>& NewSlabs);
 
     /** Geometry-level duplicate check used by placement preview and authoritative AddWall validation. */
     bool HasEquivalentWallGeometry(const FProximaWallData& Candidate, float ToleranceCm = 0.1f) const;
@@ -86,6 +113,9 @@ private:
 
     UPROPERTY(Transient)
     TArray<FProximaRoomData> Rooms;
+
+    UPROPERTY(Transient)
+    TArray<FProximaFloorData> Floors;
 
     TMap<FGuid, int32> WallIdToIndex;
     FProximaWallsChanged WallsChanged;

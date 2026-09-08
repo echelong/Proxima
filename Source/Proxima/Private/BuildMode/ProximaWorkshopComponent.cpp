@@ -90,6 +90,91 @@ void UProximaWorkshopComponent::SelectTool(EProximaBuildTool Value)
     if (Tool == EProximaBuildTool::Window) { OpeningWidthCm = 140.0f; OpeningHeightCm = 120.0f; }
     Status = GetToolName() + TEXT(" selected");
 }
+void UProximaWorkshopComponent::SetActiveLevel(
+    int32 LevelIndex)
+{
+    if (!Model())
+    {
+        return;
+    }
+
+    FProximaFloorData Floor;
+
+    if (!Model()->TryGetFloorByLevelIndex(
+            LevelIndex,
+            Floor))
+    {
+        Status =
+            TEXT(
+                "That level is not available in this building.");
+
+        return;
+    }
+
+    ActiveLevelIndex =
+        LevelIndex;
+
+    Cancel();
+    SyncModel();
+
+    Status =
+        FString::Printf(
+            TEXT(
+                "Level %d active | base elevation %.2f m"),
+            ActiveLevelIndex + 1,
+            Floor.BaseElevationCm /
+                100.0f);
+}
+
+FString UProximaWorkshopComponent::GetActiveLevelLabel() const
+{
+    return FString::Printf(
+        TEXT("LEVEL %d"),
+        ActiveLevelIndex + 1);
+}
+
+FProximaFloorID UProximaWorkshopComponent::GetActiveFloorId() const
+{
+    FProximaFloorData Floor;
+
+    if (Model() &&
+        Model()->TryGetFloorByLevelIndex(
+            ActiveLevelIndex,
+            Floor))
+    {
+        return Floor.FloorId;
+    }
+
+    return FProximaFloorID();
+}
+
+float UProximaWorkshopComponent::GetActiveFloorElevationCm() const
+{
+    FProximaFloorData Floor;
+
+    if (Model() &&
+        Model()->TryGetFloorByLevelIndex(
+            ActiveLevelIndex,
+            Floor))
+    {
+        return Floor.BaseElevationCm;
+    }
+
+    return 0.0f;
+}
+
+bool UProximaWorkshopComponent::IsWallOnActiveFloor(
+    const FProximaWallData& Wall) const
+{
+    const FProximaFloorID ActiveFloor =
+        GetActiveFloorId();
+
+    return
+        ActiveFloor.IsValid() &&
+        Wall.FloorId ==
+            ActiveFloor;
+}
+
 bool UProximaWorkshopComponent::IsPointerOverPanel() const
 {
     return Panel.IsValid() && Panel->IsPointerOverPanel();
@@ -97,7 +182,14 @@ bool UProximaWorkshopComponent::IsPointerOverPanel() const
 bool UProximaWorkshopComponent::CursorOnPlane(FVector2D& Out) const
 {
     FVector Hit;
-    if (!Controller() || !UProximaBuildPlaneTrace::TraceBuildPlane(Controller(), Hit, 0.0f)) { return false; }
+    if (!Controller() ||
+        !UProximaBuildPlaneTrace::TraceBuildPlane(
+            Controller(),
+            Hit,
+            GetActiveFloorElevationCm()))
+    {
+        return false;
+    }
     Out = FVector2D(Hit.X, Hit.Y);
     return ProximaGeometry::Finite({Out.X, Out.Y}) && FMath::Abs(Out.X) <= 100000.0 && FMath::Abs(Out.Y) <= 100000.0;
 }
@@ -112,6 +204,11 @@ FVector2D UProximaWorkshopComponent::Snap(
         for (const FProximaWallData& W :
              Model()->GetWallsView())
         {
+            if (!IsWallOnActiveFloor(W))
+            {
+                continue;
+            }
+
             Endpoints.Add(
                 W.StartPoint.ToVector2D());
 
@@ -151,11 +248,23 @@ bool UProximaWorkshopComponent::FindWallAttachment(
         return false;
     }
 
+    TArray<FProximaWallData> ActiveWalls;
+
+    for (const FProximaWallData& Wall :
+         Model()->GetWallsView())
+    {
+        if (IsWallOnActiveFloor(Wall))
+        {
+            ActiveWalls.Add(
+                Wall);
+        }
+    }
+
     return UProximaWallSnapping::
         FindForwardWallAttachment(
             Session->StartPointCm,
             CandidateCm,
-            Model()->GetWallsView(),
+            ActiveWalls,
             ToleranceCm,
             OutAttachmentCm);
 }
@@ -187,6 +296,11 @@ bool UProximaWorkshopComponent::FindResumableEndpoint(
     for (const FProximaWallData& Wall :
          Model()->GetWallsView())
     {
+        if (!IsWallOnActiveFloor(Wall))
+        {
+            continue;
+        }
+
         const FVector2D Endpoints[] = {
             Wall.StartPoint.ToVector2D(),
             Wall.EndPoint.ToVector2D()
@@ -262,7 +376,13 @@ void UProximaWorkshopComponent::ShowPreview(int32 Index, const FVector2D& Start,
         if (!Actor) { return; }
         Previews.Add(Actor);
     }
-    Previews[Index]->UpdatePreview(Start, End, Height, Thickness, Elevation);
+    Previews[Index]->UpdatePreview(
+        Start,
+        End,
+        Height,
+        Thickness,
+        Elevation +
+            GetActiveFloorElevationCm());
     Previews[Index]->SetValid(bValid);
     Previews[Index]->SetActorHiddenInGame(false);
 }
@@ -319,6 +439,11 @@ void UProximaWorkshopComponent::UpdatePreview()
         for (const FProximaWallData& Wall :
              Model()->GetWallsView())
         {
+            if (!IsWallOnActiveFloor(Wall))
+            {
+                continue;
+            }
+
             if (HandleCount >=
                 MaxResumeHandles)
             {
@@ -779,9 +904,21 @@ void UProximaWorkshopComponent::UpdatePreview()
         for (const FProximaSlabData& Existing : Model()->GetSlabsView())
         {
             const bool bSameKind = Tool == EProximaBuildTool::Roof ? Existing.Kind == EProximaSlabKind::FlatRoof : Existing.Kind == EProximaSlabKind::Floor;
-            const float Elevation = Tool == EProximaBuildTool::Roof ? HeightCm + 20.0f : 0.0f;
-            const bool bRoomRoof = bRoom && Existing.Kind == EProximaSlabKind::FlatRoof &&
-                FMath::IsNearlyEqual(Existing.ElevationCm, HeightCm + 20.0f, 0.1f);
+            const float BaseElevationCm =
+                GetActiveFloorElevationCm();
+
+            const float Elevation =
+                Tool == EProximaBuildTool::Roof
+                    ? BaseElevationCm + HeightCm + 20.0f
+                    : BaseElevationCm;
+
+            const bool bRoomRoof =
+                bRoom &&
+                Existing.Kind == EProximaSlabKind::FlatRoof &&
+                FMath::IsNearlyEqual(
+                    Existing.ElevationCm,
+                    BaseElevationCm + HeightCm + 20.0f,
+                    0.1f);
             if (((bSameKind && FMath::IsNearlyEqual(Existing.ElevationCm, Elevation, 0.1f)) || bRoomRoof) &&
                 ProximaGeometry::Overlaps(Candidate, {Existing.MinCm.X, Existing.MinCm.Y, Existing.MaxCm.X, Existing.MaxCm.Y})) { bPreviewValid = false; }
         }
@@ -811,7 +948,11 @@ bool UProximaWorkshopComponent::FindWallAtCursor(FProximaWallData& OutWall, floa
     {
         if (const AProximaRuntimeWall* Actor = Cast<AProximaRuntimeWall>(Hit.GetActor()))
         {
-            if (Model()->TryGetWall(Actor->GetWallID(), OutWall))
+            if (Model()->TryGetWall(
+                    Actor->GetWallID(),
+                    OutWall) &&
+                IsWallOnActiveFloor(
+                    OutWall))
             {
                 double Distance = 0.0;
                 ProximaGeometry::ClosestPoint({Hit.ImpactPoint.X, Hit.ImpactPoint.Y},
@@ -829,6 +970,11 @@ bool UProximaWorkshopComponent::FindWallAtCursor(FProximaWallData& OutWall, floa
     bool bFound = false;
     for (const FProximaWallData& Wall : Model()->GetWallsView())
     {
+        if (!IsWallOnActiveFloor(Wall))
+        {
+            continue;
+        }
+
         double Distance = 0.0;
         const auto Closest = ProximaGeometry::ClosestPoint({Point.X, Point.Y},
             {Wall.StartPoint.XCm, Wall.StartPoint.YCm}, {Wall.EndPoint.XCm, Wall.EndPoint.YCm}, &Distance);
@@ -1185,6 +1331,7 @@ void UProximaWorkshopComponent::PrimaryAction()
         Wall.HeightCm = HeightCm;
         Wall.ThicknessCm = ThicknessCm;
         Wall.SideAMaterial.Value = Finish;
+        Wall.FloorId = GetActiveFloorId();
 
         TArray<FProximaWallData> TopologyWalls;
         FString TopologyError;
@@ -1321,14 +1468,55 @@ void UProximaWorkshopComponent::CommitRectangle()
         TArray<FProximaWallData> RoomWalls;
         TArray<FProximaSlabData> RoomSlabs;
         if (!FProximaRoomBuilder::Create(Min, Max, HeightCm, ThicknessCm, RoomWalls, RoomSlabs)) { return; }
-        for (FProximaWallData& Wall : RoomWalls) { Wall.SideAMaterial.Value = Finish; }
-        NewWalls.Append(RoomWalls); NewSlabs.Append(RoomSlabs);
+        const float BaseElevationCm =
+            GetActiveFloorElevationCm();
+
+        const FProximaFloorID ActiveFloor =
+            GetActiveFloorId();
+
+        for (FProximaWallData& Wall :
+             RoomWalls)
+        {
+            Wall.SideAMaterial.Value =
+                Finish;
+
+            Wall.FloorId =
+                ActiveFloor;
+        }
+
+        for (FProximaSlabData& Slab :
+             RoomSlabs)
+        {
+            Slab.ElevationCm +=
+                BaseElevationCm;
+        }
+
+        NewWalls.Append(RoomWalls);
+        NewSlabs.Append(RoomSlabs);
     }
     else
     {
         FProximaSlabData Slab;
         Slab.Id = FGuid::NewGuid(); Slab.MinCm = Min; Slab.MaxCm = Max;
-        if (Tool == EProximaBuildTool::Roof) { Slab.Kind = EProximaSlabKind::FlatRoof; Slab.ElevationCm = HeightCm + 20.0f; }
+        const float BaseElevationCm =
+            GetActiveFloorElevationCm();
+
+        if (Tool == EProximaBuildTool::Roof)
+        {
+            Slab.Kind =
+                EProximaSlabKind::FlatRoof;
+
+            Slab.ElevationCm =
+                BaseElevationCm +
+                HeightCm +
+                20.0f;
+        }
+        else
+        {
+            Slab.ElevationCm =
+                BaseElevationCm;
+        }
+
         NewSlabs.Add(Slab);
     }
     if (CommitModel(NewWalls, NewSlabs))
@@ -1404,7 +1592,9 @@ void UProximaWorkshopComponent::Save()
     if (!Model()) { return; }
     UProximaSaveSystem* Saves = Controller()->GetGameInstance()->GetSubsystem<UProximaSaveSystem>();
     UProximaSaveData* Data = NewObject<UProximaSaveData>(this);
-    Data->Walls = Model()->GetWallsView(); Data->Slabs = Model()->GetSlabsView();
+    Data->Walls = Model()->GetWallsView();
+    Data->Slabs = Model()->GetSlabsView();
+    Data->Floors = Model()->GetFloorsView();
     Data->Header.PropertyName = TEXT("My Proxima home");
     Status = Saves && Saves->SaveProperty(TEXT("DefaultSlot"), Data)
         ? TEXT("Home saved: walls, openings, floors and roofs.") : TEXT("Save failed. Your current layout remains in memory.");
@@ -1414,7 +1604,15 @@ void UProximaWorkshopComponent::Load()
     if (!Model()) { return; }
     UProximaSaveSystem* Saves = Controller()->GetGameInstance()->GetSubsystem<UProximaSaveSystem>();
     UProximaSaveData* Data = nullptr;
-    if (!Saves || !Saves->LoadProperty(TEXT("DefaultSlot"), Data) || !Data || !Model()->ReplaceModel(Data->Walls, Data->Slabs))
+    if (!Saves ||
+        !Saves->LoadProperty(
+            TEXT("DefaultSlot"),
+            Data) ||
+        !Data ||
+        !Model()->ReplaceModel(
+            Data->Walls,
+            Data->Slabs,
+            Data->Floors))
     {
         Status = TEXT("No valid saved home found. Your layout was kept.");
         return;
@@ -1455,7 +1653,12 @@ void UProximaWorkshopComponent::SyncModel()
         AProximaRuntimeWall* Actor = GetWorld()->SpawnActor<AProximaRuntimeWall>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
         if (Actor)
         {
-            Actor->InitializeFromData(Wall);
+            Actor->InitializeFromData(
+                Wall,
+                0.0f,
+                0.0f,
+                Model()->GetFloorBaseElevation(
+                    Wall.FloorId));
             for (const FProximaWallData& Other : Model()->GetWallsView())
             {
                 // A stable GUID ordering gives each shared corner one owner.
@@ -1489,7 +1692,8 @@ void UProximaWorkshopComponent::SyncModel()
             if (Slab.Kind != EProximaSlabKind::Floor ||
                 !FMath::IsNearlyEqual(
                     Slab.ElevationCm,
-                    0.0f,
+                    Model()->GetFloorBaseElevation(
+                        Room.FloorId),
                     0.1f))
             {
                 continue;
@@ -1528,7 +1732,10 @@ void UProximaWorkshopComponent::SyncModel()
                 Params);
 
         if (Actor &&
-            Actor->InitializeFromData(Room))
+            Actor->InitializeFromData(
+                Room,
+                Model()->GetFloorBaseElevation(
+                    Room.FloorId)))
         {
             RoomFloors.Add(
                 Room.RoomId,
@@ -1619,7 +1826,10 @@ FString UProximaWorkshopComponent::GetReadout() const
     {
         return FString::Printf(TEXT("%.2f m long  |  %.2f m high  |  %.0f cm thick"), Session->PreviewLengthM, HeightCm / 100.0f, ThicknessCm);
     }
-    return GetSelectionReadout();
+    return FString::Printf(
+        TEXT("%s  |  %s"),
+        *GetActiveLevelLabel(),
+        *GetSelectionReadout());
 }
 FString UProximaWorkshopComponent::GetSelectionReadout() const
 {

@@ -18,7 +18,8 @@ public:
     AProximaRuntimeRoomFloor();
 
     bool InitializeFromData(
-        const FProximaRoomData& Data);
+        const FProximaRoomData& Data,
+        float BaseElevationCm = 0.0f);
 
     FGuid GetRoomID() const
     {

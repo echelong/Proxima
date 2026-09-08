@@ -3,6 +3,138 @@
 #include "Building/ProximaWallTopology.h"
 #include "Building/ProximaRoomTopology.h"
 
+namespace
+{
+
+TArray<FProximaFloorData> MakeDefaultProximaFloors()
+{
+    TArray<FProximaFloorData> Result;
+
+    constexpr int32 DefaultFloorCount =
+        3;
+
+    constexpr float DefaultStoreyHeightCm =
+        270.0f;
+
+    Result.Reserve(
+        DefaultFloorCount);
+
+    for (int32 LevelIndex = 0;
+         LevelIndex < DefaultFloorCount;
+         ++LevelIndex)
+    {
+        FProximaFloorData Floor;
+
+        Floor.FloorId.Id =
+            FProximaID::NewId();
+
+        Floor.LevelIndex =
+            LevelIndex;
+
+        Floor.BaseElevationCm =
+            DefaultStoreyHeightCm *
+            static_cast<float>(
+                LevelIndex);
+
+        Floor.StoreyHeightCm =
+            DefaultStoreyHeightCm;
+
+        Result.Add(
+            Floor);
+    }
+
+    return Result;
+}
+
+bool ValidateProximaFloors(
+    const TArray<FProximaFloorData>& Floors)
+{
+    if (Floors.IsEmpty() ||
+        Floors.Num() > 32)
+    {
+        return false;
+    }
+
+    TSet<FGuid> FloorIds;
+    TSet<int32> LevelIndices;
+
+    for (const FProximaFloorData& Floor :
+         Floors)
+    {
+        if (!Floor.FloorId.IsValid() ||
+            Floor.LevelIndex < 0 ||
+            Floor.LevelIndex > 31 ||
+            !FMath::IsFinite(
+                Floor.BaseElevationCm) ||
+            !FMath::IsFinite(
+                Floor.StoreyHeightCm) ||
+            Floor.StoreyHeightCm <
+                100.0f ||
+            Floor.StoreyHeightCm >
+                1000.0f ||
+            FloorIds.Contains(
+                Floor.FloorId.Id.Value) ||
+            LevelIndices.Contains(
+                Floor.LevelIndex))
+        {
+            return false;
+        }
+
+        FloorIds.Add(
+            Floor.FloorId.Id.Value);
+
+        LevelIndices.Add(
+            Floor.LevelIndex);
+    }
+
+    return true;
+}
+
+const FProximaFloorData* FindGroundFloor(
+    const TArray<FProximaFloorData>& Floors)
+{
+    const FProximaFloorData* Best =
+        nullptr;
+
+    for (const FProximaFloorData& Floor :
+         Floors)
+    {
+        if (!Best ||
+            Floor.LevelIndex <
+                Best->LevelIndex)
+        {
+            Best =
+                &Floor;
+        }
+    }
+
+    return Best;
+}
+
+bool ContainsFloorId(
+    const TArray<FProximaFloorData>& Floors,
+    const FProximaFloorID& FloorId)
+{
+    if (!FloorId.IsValid())
+    {
+        return false;
+    }
+
+    for (const FProximaFloorData& Floor :
+         Floors)
+    {
+        if (Floor.FloorId ==
+            FloorId)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+}
+
 void UProximaBuildingManager::Initialize(FSubsystemCollectionBase& Collection)
 {
     Super::Initialize(Collection);
@@ -120,11 +252,52 @@ TArray<FProximaWallID> UProximaBuildingManager::GetWallsOnFloor(const FProximaFl
     return Result;
 }
 
+bool UProximaBuildingManager::TryGetFloorByLevelIndex(
+    int32 LevelIndex,
+    FProximaFloorData& OutFloor) const
+{
+    for (const FProximaFloorData& Floor :
+         Floors)
+    {
+        if (Floor.LevelIndex ==
+            LevelIndex)
+        {
+            OutFloor =
+                Floor;
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
+float UProximaBuildingManager::GetFloorBaseElevation(
+    const FProximaFloorID& FloorId) const
+{
+    for (const FProximaFloorData& Floor :
+         Floors)
+    {
+        if (Floor.FloorId ==
+            FloorId)
+        {
+            return
+                Floor.BaseElevationCm;
+        }
+    }
+
+    return 0.0f;
+}
+
 void UProximaBuildingManager::ResetWalls()
 {
     Walls.Reset();
     Slabs.Reset();
     Rooms.Reset();
+
+    Floors =
+        MakeDefaultProximaFloors();
+
     WallIdToIndex.Reset();
     BroadcastWallsChanged();
 }
@@ -172,15 +345,73 @@ bool UProximaBuildingManager::ValidateModel(
 }
 
 bool UProximaBuildingManager::ReplaceModel(
-    const TArray<FProximaWallData>& NewWalls, const TArray<FProximaSlabData>& NewSlabs)
+    const TArray<FProximaWallData>& NewWalls,
+    const TArray<FProximaSlabData>& NewSlabs)
 {
-    if (!ValidateModel(NewWalls, NewSlabs))
+    return ReplaceModel(
+        NewWalls,
+        NewSlabs,
+        Floors);
+}
+
+bool UProximaBuildingManager::ReplaceModel(
+    const TArray<FProximaWallData>& NewWalls,
+    const TArray<FProximaSlabData>& NewSlabs,
+    const TArray<FProximaFloorData>& NewFloors)
+{
+    if (!ValidateModel(
+            NewWalls,
+            NewSlabs))
+    {
+        return false;
+    }
+
+    TArray<FProximaFloorData> EffectiveFloors =
+        NewFloors;
+
+    /*
+     * Legacy V1/V2 saves can legitimately contain no floor metadata.
+     * Migrate them into the new three-storey model automatically.
+     */
+    if (EffectiveFloors.IsEmpty())
+    {
+        EffectiveFloors =
+            MakeDefaultProximaFloors();
+    }
+
+    if (!ValidateProximaFloors(
+            EffectiveFloors))
+    {
+        return false;
+    }
+
+    const FProximaFloorData* GroundFloor =
+        FindGroundFloor(
+            EffectiveFloors);
+
+    if (!GroundFloor)
     {
         return false;
     }
 
     TArray<FProximaWallData> RebuiltWalls =
         NewWalls;
+
+    /*
+     * Legacy walls had no FloorId.
+     * Unknown floor IDs are also safely migrated to Level 1.
+     */
+    for (FProximaWallData& Wall :
+         RebuiltWalls)
+    {
+        if (!ContainsFloorId(
+                EffectiveFloors,
+                Wall.FloorId))
+        {
+            Wall.FloorId =
+                GroundFloor->FloorId;
+        }
+    }
 
     FProximaWallTopology::RebuildConnections(
         RebuiltWalls);
@@ -194,9 +425,20 @@ bool UProximaBuildingManager::ReplaceModel(
         return false;
     }
 
-    Walls = MoveTemp(RebuiltWalls);
-    Slabs = NewSlabs;
-    Rooms = MoveTemp(RebuiltRooms);
+    Walls =
+        MoveTemp(
+            RebuiltWalls);
+
+    Slabs =
+        NewSlabs;
+
+    Rooms =
+        MoveTemp(
+            RebuiltRooms);
+
+    Floors =
+        MoveTemp(
+            EffectiveFloors);
 
     RebuildWallIndex();
     BroadcastWallsChanged();

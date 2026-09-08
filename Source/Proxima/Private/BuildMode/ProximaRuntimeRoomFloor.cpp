@@ -346,7 +346,8 @@ MakeTwoSidedTriangles(
 
 bool AProximaRuntimeRoomFloor::
 InitializeFromData(
-    const FProximaRoomData& Data)
+    const FProximaRoomData& Data,
+    float BaseElevationCm)
 {
     if (!Mesh ||
         !Data.IsValid())
@@ -378,6 +379,7 @@ InitializeFromData(
         FVector(
             0.0f,
             0.0f,
+            BaseElevationCm +
             DerivedRoomFloorSurfaceOffsetCm));
 
     TArray<FVector> Vertices;

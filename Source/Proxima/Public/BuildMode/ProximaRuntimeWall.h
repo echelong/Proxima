@@ -13,7 +13,11 @@ class PROXIMA_API AProximaRuntimeWall : public AActor
     GENERATED_BODY()
 public:
     AProximaRuntimeWall();
-    void InitializeFromData(const FProximaWallData& Data, float PropertyOriginX = 0.0f, float PropertyOriginY = 0.0f);
+    void InitializeFromData(
+        const FProximaWallData& Data,
+        float PropertyOriginX = 0.0f,
+        float PropertyOriginY = 0.0f,
+        float BaseElevationCm = 0.0f);
     UFUNCTION(BlueprintPure, Category = "Proxima|Build")
     FProximaWallID GetWallID() const { return WallId; }
     void SetSelected(bool bSelected);

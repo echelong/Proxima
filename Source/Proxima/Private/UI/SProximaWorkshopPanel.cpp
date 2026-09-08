@@ -82,7 +82,83 @@ void SProximaWorkshopPanel::Construct(const FArguments& Args)
                     [SNew(SVerticalBox)
                         + SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Text(FText::FromString(TEXT("P R O X I M A")))
                             .Font(FCoreStyle::GetDefaultFontStyle("Bold", 21)).ColorAndOpacity(Paper)]
-                        + SVerticalBox::Slot().AutoHeight().Padding(0, 4, 0, 18)[Caption(TEXT("A place to make your own"))]
+                        + SVerticalBox::Slot().AutoHeight().Padding(0, 4, 0, 12)[Caption(TEXT("A place to make your own"))]
+                        + SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 4)
+                        [SNew(STextBlock)
+                            .Text_Lambda([Weak]()
+                            {
+                                return FText::FromString(
+                                    Weak.IsValid()
+                                        ? Weak->GetActiveLevelLabel()
+                                        : FString());
+                            })
+                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 13))
+                            .ColorAndOpacity(Mint)]
+                        + SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 10)
+                        [SNew(SHorizontalBox)
+                            + SHorizontalBox::Slot().FillWidth(1).Padding(0, 0, 3, 0)
+                            [SNew(SButton)
+                                .IsFocusable(false)
+                                .ContentPadding(FMargin(5, 6))
+                                .ButtonColorAndOpacity_Lambda([Weak]()
+                                {
+                                    return Weak.IsValid() &&
+                                           Weak->GetActiveLevelIndex() == 0
+                                        ? Mint
+                                        : FLinearColor(0.18f, 0.22f, 0.21f);
+                                })
+                                .OnClicked_Lambda([Weak]()
+                                {
+                                    if (Weak.IsValid())
+                                    {
+                                        Weak->SetActiveLevel(0);
+                                    }
+
+                                    return FReply::Handled();
+                                })
+                                [Caption(TEXT("LEVEL 1"))]]
+                            + SHorizontalBox::Slot().FillWidth(1).Padding(0, 0, 3, 0)
+                            [SNew(SButton)
+                                .IsFocusable(false)
+                                .ContentPadding(FMargin(5, 6))
+                                .ButtonColorAndOpacity_Lambda([Weak]()
+                                {
+                                    return Weak.IsValid() &&
+                                           Weak->GetActiveLevelIndex() == 1
+                                        ? Mint
+                                        : FLinearColor(0.18f, 0.22f, 0.21f);
+                                })
+                                .OnClicked_Lambda([Weak]()
+                                {
+                                    if (Weak.IsValid())
+                                    {
+                                        Weak->SetActiveLevel(1);
+                                    }
+
+                                    return FReply::Handled();
+                                })
+                                [Caption(TEXT("LEVEL 2"))]]
+                            + SHorizontalBox::Slot().FillWidth(1)
+                            [SNew(SButton)
+                                .IsFocusable(false)
+                                .ContentPadding(FMargin(5, 6))
+                                .ButtonColorAndOpacity_Lambda([Weak]()
+                                {
+                                    return Weak.IsValid() &&
+                                           Weak->GetActiveLevelIndex() == 2
+                                        ? Mint
+                                        : FLinearColor(0.18f, 0.22f, 0.21f);
+                                })
+                                .OnClicked_Lambda([Weak]()
+                                {
+                                    if (Weak.IsValid())
+                                    {
+                                        Weak->SetActiveLevel(2);
+                                    }
+
+                                    return FReply::Handled();
+                                })
+                                [Caption(TEXT("LEVEL 3"))]]]
                         + SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 4)
                         [SNew(SHorizontalBox)
                             + SHorizontalBox::Slot().FillWidth(1).Padding(0, 0, 3, 0)[ToolButton(EProximaBuildTool::Select, TEXT("1  Select"))]

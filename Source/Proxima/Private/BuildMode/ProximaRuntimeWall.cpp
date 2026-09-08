@@ -38,12 +38,22 @@ AProximaRuntimeWall::AProximaRuntimeWall()
     Glass->SetCastShadow(false);
 }
 
-void AProximaRuntimeWall::InitializeFromData(const FProximaWallData& Data, float OriginX, float OriginY)
+void AProximaRuntimeWall::InitializeFromData(
+    const FProximaWallData& Data,
+    float OriginX,
+    float OriginY,
+    float BaseElevationCm)
 {
     Solids->ClearInstances(); Frames->ClearInstances(); Glass->ClearInstances();
     WallId = Data.WallId;
     if (!Data.IsValid()) { return; }
-    SetActorTransform(FTransform(Data.GetRotation(), FVector(OriginX + Data.StartPoint.XCm, OriginY + Data.StartPoint.YCm, 0.0)));
+    SetActorTransform(
+        FTransform(
+            Data.GetRotation(),
+            FVector(
+                OriginX + Data.StartPoint.XCm,
+                OriginY + Data.StartPoint.YCm,
+                BaseElevationCm)));
     std::vector<ProximaGeometry::Rect> Openings, Boxes;
     for (const FProximaOpeningData& O : Data.Openings)
     {

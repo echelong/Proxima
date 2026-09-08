@@ -47,6 +47,21 @@ public:
     void AddExampleHome();
     void ToggleRoofs();
     void CycleGrid();
+
+    /** 0 = Level 1, 1 = Level 2, 2 = Level 3. */
+    void SetActiveLevel(int32 LevelIndex);
+
+    int32 GetActiveLevelIndex() const
+    {
+        return ActiveLevelIndex;
+    }
+
+    FString GetActiveLevelLabel() const;
+
+    FProximaFloorID GetActiveFloorId() const;
+
+    float GetActiveFloorElevationCm() const;
+
     bool SetDimension(FName Field, const FString& Text);
     bool IsPointerOverPanel() const;
     FString GetToolName() const;
@@ -78,6 +93,7 @@ private:
         float Height, float Thickness, float Elevation, bool bValid);
     bool CursorOnPlane(FVector2D& Out) const;
     bool FindWallAtCursor(FProximaWallData& OutWall, float& Along) const;
+    bool IsWallOnActiveFloor(const FProximaWallData& Wall) const;
     bool MakeOpening(FProximaWallData& Wall, FProximaOpeningData& Opening) const;
     FVector2D Snap(
         const FVector2D& Point,
@@ -129,4 +145,7 @@ private:
     bool bActive = false;
     bool bCursorValid = false;
     bool bPreviewValid = false;
+
+    /** Internal level index: 0=Level 1, 1=Level 2, 2=Level 3. */
+    int32 ActiveLevelIndex = 0;
 };
