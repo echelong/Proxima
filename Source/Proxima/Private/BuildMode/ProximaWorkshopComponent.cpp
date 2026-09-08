@@ -3,6 +3,7 @@
 #include "BuildMode/ProximaExactLength.h"
 #include "BuildMode/ProximaRuntimeWall.h"
 #include "BuildMode/ProximaRuntimeSlab.h"
+#include "BuildMode/ProximaRuntimeRoomFloor.h"
 #include "BuildMode/ProximaWallPreview.h"
 #include "BuildMode/ProximaWallPlacementSession.h"
 #include "Building/ProximaBuildingManager.h"
@@ -58,6 +59,7 @@ void UProximaWorkshopComponent::EndPlay(const EEndPlayReason::Type Reason)
     Panel.Reset();
     for (auto& Pair : Walls) { if (IsValid(Pair.Value)) { Pair.Value->Destroy(); } }
     for (auto& Pair : Slabs) { if (IsValid(Pair.Value)) { Pair.Value->Destroy(); } }
+    for (auto& Pair : RoomFloors) { if (IsValid(Pair.Value)) { Pair.Value->Destroy(); } }
     for (AProximaWallPreview* Preview : Previews) { if (IsValid(Preview)) { Preview->Destroy(); } }
     Super::EndPlay(Reason);
 }
@@ -497,7 +499,10 @@ void UProximaWorkshopComponent::SyncModel()
 {
     for (auto& Pair : Walls) { if (IsValid(Pair.Value)) { Pair.Value->Destroy(); } }
     for (auto& Pair : Slabs) { if (IsValid(Pair.Value)) { Pair.Value->Destroy(); } }
-    Walls.Reset(); Slabs.Reset();
+    for (auto& Pair : RoomFloors) { if (IsValid(Pair.Value)) { Pair.Value->Destroy(); } }
+    Walls.Reset();
+    Slabs.Reset();
+    RoomFloors.Reset();
     if (!Model() || !GetWorld()) { return; }
     FActorSpawnParameters Params;
     Params.Owner = GetOwner();
@@ -530,6 +535,66 @@ void UProximaWorkshopComponent::SyncModel()
     {
         AProximaRuntimeSlab* Actor = GetWorld()->SpawnActor<AProximaRuntimeSlab>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
         if (Actor) { Actor->InitializeFromData(Slab); Slabs.Add(Slab.Id, Actor); }
+    }
+
+    for (const FProximaRoomData& Room : Model()->GetRoomsView())
+    {
+        bool bCoveredByExplicitFloor = false;
+
+        for (const FProximaSlabData& Slab : Model()->GetSlabsView())
+        {
+            if (Slab.Kind != EProximaSlabKind::Floor ||
+                !FMath::IsNearlyEqual(
+                    Slab.ElevationCm,
+                    0.0f,
+                    0.1f))
+            {
+                continue;
+            }
+
+            bool bContainsEveryVertex = true;
+
+            for (const FVector2D& Vertex : Room.VerticesCm)
+            {
+                if (Vertex.X < Slab.MinCm.X - 0.1f ||
+                    Vertex.X > Slab.MaxCm.X + 0.1f ||
+                    Vertex.Y < Slab.MinCm.Y - 0.1f ||
+                    Vertex.Y > Slab.MaxCm.Y + 0.1f)
+                {
+                    bContainsEveryVertex = false;
+                    break;
+                }
+            }
+
+            if (bContainsEveryVertex)
+            {
+                bCoveredByExplicitFloor = true;
+                break;
+            }
+        }
+
+        if (bCoveredByExplicitFloor)
+        {
+            continue;
+        }
+
+        AProximaRuntimeRoomFloor* Actor =
+            GetWorld()->SpawnActor<AProximaRuntimeRoomFloor>(
+                FVector::ZeroVector,
+                FRotator::ZeroRotator,
+                Params);
+
+        if (Actor &&
+            Actor->InitializeFromData(Room))
+        {
+            RoomFloors.Add(
+                Room.RoomId,
+                Actor);
+        }
+        else if (Actor)
+        {
+            Actor->Destroy();
+        }
     }
     if (!Walls.Contains(SelectedWall)) { SelectedWall = FProximaWallID(); }
     if (!Slabs.Contains(SelectedSlab)) { SelectedSlab.Invalidate(); }

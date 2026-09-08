@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "BuildMode/ProximaRuntimeRoomFloor.h"
 #include "Building/ProximaBuildingManager.h"
 #include "Building/ProximaRoomTopology.h"
 #include "Building/ProximaWallTopology.h"
@@ -143,6 +144,26 @@ bool FProximaRoomTopologyTest::RunTest(
                     Rooms[0].GetAreaM2(),
                     12.0f,
                     0.001f));
+
+            TArray<int32> Triangles;
+
+            TestTrue(
+                TEXT("L-shaped floor triangulates"),
+                AProximaRuntimeRoomFloor::TriangulatePolygon(
+                    Rooms[0].VerticesCm,
+                    Triangles));
+
+            TestEqual(
+                TEXT("Six-vertex room creates four triangles"),
+                Triangles.Num(),
+                12);
+
+            for (const int32 Index : Triangles)
+            {
+                TestTrue(
+                    TEXT("Room floor triangle index is valid"),
+                    Rooms[0].VerticesCm.IsValidIndex(Index));
+            }
         }
     }
 

@@ -17,7 +17,8 @@ public class Proxima : ModuleRules
             "Engine",
             "InputCore",
             "Slate",
-            "SlateCore"
+            "SlateCore",
+            "ProceduralMeshComponent"
         });
     }
 }

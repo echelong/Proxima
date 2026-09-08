@@ -9,6 +9,7 @@
 class AProximaPlayerController;
 class AProximaRuntimeWall;
 class AProximaRuntimeSlab;
+class AProximaRuntimeRoomFloor;
 class AProximaWallPreview;
 class UProximaWallPlacementSession;
 class UProximaBuildingManager;
@@ -86,6 +87,10 @@ private:
     TMap<FProximaWallID, TObjectPtr<AProximaRuntimeWall>> Walls;
     UPROPERTY()
     TMap<FGuid, TObjectPtr<AProximaRuntimeSlab>> Slabs;
+
+    UPROPERTY()
+    TMap<FGuid, TObjectPtr<AProximaRuntimeRoomFloor>> RoomFloors;
+
     UPROPERTY()
     TArray<TObjectPtr<AProximaWallPreview>> Previews;
     TSharedPtr<SProximaWorkshopPanel> Panel;
