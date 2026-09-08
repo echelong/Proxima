@@ -1,6 +1,7 @@
 #include "Building/ProximaBuildingManager.h"
 #include "Building/ProximaGeometryKernel.h"
 #include "Building/ProximaWallTopology.h"
+#include "Building/ProximaRoomTopology.h"
 
 void UProximaBuildingManager::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -123,6 +124,7 @@ void UProximaBuildingManager::ResetWalls()
 {
     Walls.Reset();
     Slabs.Reset();
+    Rooms.Reset();
     WallIdToIndex.Reset();
     BroadcastWallsChanged();
 }
@@ -183,8 +185,18 @@ bool UProximaBuildingManager::ReplaceModel(
     FProximaWallTopology::RebuildConnections(
         RebuiltWalls);
 
+    TArray<FProximaRoomData> RebuiltRooms;
+
+    if (!FProximaRoomTopology::DetectRooms(
+            RebuiltWalls,
+            RebuiltRooms))
+    {
+        return false;
+    }
+
     Walls = MoveTemp(RebuiltWalls);
     Slabs = NewSlabs;
+    Rooms = MoveTemp(RebuiltRooms);
 
     RebuildWallIndex();
     BroadcastWallsChanged();

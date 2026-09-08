@@ -4,6 +4,7 @@
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Building/ProximaWallData.h"
 #include "Building/ProximaSlabData.h"
+#include "Building/ProximaRoomData.h"
 #include "ProximaBuildingManager.generated.h"
 
 DECLARE_MULTICAST_DELEGATE(FProximaWallsChanged);
@@ -53,6 +54,10 @@ public:
 
     const TArray<FProximaWallData>& GetWallsView() const { return Walls; }
     const TArray<FProximaSlabData>& GetSlabsView() const { return Slabs; }
+    const TArray<FProximaRoomData>& GetRoomsView() const { return Rooms; }
+
+    UFUNCTION(BlueprintPure, Category = "Proxima|Building")
+    TArray<FProximaRoomData> GetAllRooms() const { return Rooms; }
 
     /** Validate before mutation; one notification covers walls and slabs together. */
     bool ReplaceModel(const TArray<FProximaWallData>& NewWalls, const TArray<FProximaSlabData>& NewSlabs);
@@ -78,6 +83,9 @@ private:
 
     UPROPERTY(Transient)
     TArray<FProximaSlabData> Slabs;
+
+    UPROPERTY(Transient)
+    TArray<FProximaRoomData> Rooms;
 
     TMap<FGuid, int32> WallIdToIndex;
     FProximaWallsChanged WallsChanged;
