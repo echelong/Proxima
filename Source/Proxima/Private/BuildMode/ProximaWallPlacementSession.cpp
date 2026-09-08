@@ -1,6 +1,5 @@
 #include "BuildMode/ProximaWallPlacementSession.h"
 #include "BuildMode/ProximaWallSnapping.h"
-#include "Building/ProximaBuildingManager.h"
 
 void UProximaWallPlacementSession::BeginPlacement()
 {
@@ -8,12 +7,17 @@ void UProximaWallPlacementSession::BeginPlacement()
     StartPointCm = FVector2D::ZeroVector;
     CurrentEndpointCm = FVector2D::ZeroVector;
     SnappedEndpointCm = FVector2D::ZeroVector;
+    PreviewLengthM = 0.0f;
     bCanConfirm = false;
 }
 
 void UProximaWallPlacementSession::CancelPlacement()
 {
     CurrentState = EProximaPlacementState::Inactive;
+    StartPointCm = FVector2D::ZeroVector;
+    CurrentEndpointCm = FVector2D::ZeroVector;
+    SnappedEndpointCm = FVector2D::ZeroVector;
+    PreviewLengthM = 0.0f;
     bCanConfirm = false;
 }
 
@@ -22,59 +26,35 @@ void UProximaWallPlacementSession::ConfirmStart(const FVector2D& StartCm)
     StartPointCm = StartCm;
     CurrentEndpointCm = StartCm;
     SnappedEndpointCm = StartCm;
+    PreviewLengthM = 0.0f;
     bCanConfirm = false;
     CurrentState = EProximaPlacementState::Previewing;
 }
 
-void UProximaWallPlacementSession::UpdateEndpoint(const FVector2D& CandidateCm, const FVector2D& SnappedCm)
+void UProximaWallPlacementSession::ContinueFromCurrentEndpoint()
 {
-    // Reject effectively-zero walls.
-    if (FVector2D::Distance(StartPointCm, SnappedCm) < FMath::Max(MinWallLengthCm, 1.0f))
+    const FVector2D NextStartCm = SnappedEndpointCm;
+    BeginPlacement();
+    ConfirmStart(NextStartCm);
+}
+
+void UProximaWallPlacementSession::UpdateEndpoint(
+    const FVector2D& CandidateCm,
+    const FVector2D& SnappedCm,
+    bool bDuplicateGeometry)
+{
+    CurrentEndpointCm = CandidateCm;
+    SnappedEndpointCm = SnappedCm;
+
+    const float LengthCm = FVector2D::Distance(StartPointCm, SnappedCm);
+    PreviewLengthM = LengthCm / 100.0f;
+
+    if (LengthCm < FMath::Max(MinWallLengthCm, 1.0f) || bDuplicateGeometry)
     {
         bCanConfirm = false;
-        CurrentEndpointCm = CandidateCm;
-        SnappedEndpointCm = SnappedCm;
-        PreviewLengthM = 0.0f;
         return;
     }
 
-    // Reject duplicate walls (same endpoints, same orientation) — only when a world exists.
-    if (UWorld* World = GetWorld())
-    {
-        if (UGameInstance* GI = World->GetGameInstance())
-        {
-            if (UProximaBuildingManager* Manager = Cast<UProximaBuildingManager>(GI->GetSubsystem<UProximaBuildingManager>()))
-            {
-                for (const FProximaWallData& W : Manager->GetAllWalls())
-                {
-                    if (W.IsDegenerate())
-                    {
-                        continue;
-                    }
-                    const FVector2D WStart = W.StartPoint.ToVector2D();
-                    const FVector2D WEnd = W.EndPoint.ToVector2D();
-                    const float Tol = 5.0f;
-                    // Same wall in either direction (start→end or end→start).
-                    bool bMatchesForward = FVector2D::Distance(WStart, SnappedCm) < Tol &&
-                                          FVector2D::Distance(WEnd, StartPointCm) < Tol;
-                    bool bMatchesReverse = FVector2D::Distance(WEnd, SnappedCm) < Tol &&
-                                          FVector2D::Distance(WStart, StartPointCm) < Tol;
-                    if (bMatchesForward || bMatchesReverse)
-                    {
-                        bCanConfirm = false;
-                        PreviewLengthM = FVector2D::Distance(StartPointCm, SnappedCm) / 100.0f;
-                        CurrentEndpointCm = CandidateCm;
-                        SnappedEndpointCm = SnappedCm;
-                        return;
-                    }
-                }
-            }
-        }
-    }
-
-    CurrentEndpointCm = CandidateCm;
-    SnappedEndpointCm = SnappedCm;
-    PreviewLengthM = FVector2D::Distance(StartPointCm, SnappedCm) / 100.0f;
     bCanConfirm = CurrentState == EProximaPlacementState::Previewing;
 }
 

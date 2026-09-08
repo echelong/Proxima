@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Building/ProximaWallData.h"
+#include "Building/ProximaSlabData.h"
 #include "ProximaBuildingManager.generated.h"
 
 DECLARE_MULTICAST_DELEGATE(FProximaWallsChanged);
@@ -28,6 +29,12 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Proxima|Building")
     bool UpdateWall(const FProximaWallID& WallId, const FProximaWallData& NewData);
 
+    UFUNCTION(BlueprintCallable, Category = "Proxima|Building")
+    bool AddWallOpening(const FProximaWallID& WallId, const FProximaOpeningData& Opening);
+
+    UFUNCTION(BlueprintCallable, Category = "Proxima|Building")
+    bool RemoveWallOpening(const FProximaWallID& WallId, const FProximaOpeningID& OpeningId);
+
     UFUNCTION(BlueprintPure, Category = "Proxima|Building")
     bool TryGetWall(const FProximaWallID& WallId, FProximaWallData& OutWall) const;
 
@@ -40,6 +47,25 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Proxima|Building")
     void ResetWalls();
 
+    /** Atomically replaces persistent wall state and broadcasts exactly once. */
+    UFUNCTION(BlueprintCallable, Category = "Proxima|Building")
+    bool ReplaceWalls(const TArray<FProximaWallData>& NewWalls);
+
+    const TArray<FProximaWallData>& GetWallsView() const { return Walls; }
+    const TArray<FProximaSlabData>& GetSlabsView() const { return Slabs; }
+
+    /** Validate before mutation; one notification covers walls and slabs together. */
+    bool ReplaceModel(const TArray<FProximaWallData>& NewWalls, const TArray<FProximaSlabData>& NewSlabs);
+    static bool ValidateModel(const TArray<FProximaWallData>& NewWalls, const TArray<FProximaSlabData>& NewSlabs);
+
+    /** Geometry-level duplicate check used by placement preview and authoritative AddWall validation. */
+    bool HasEquivalentWallGeometry(const FProximaWallData& Candidate, float ToleranceCm = 0.1f) const;
+
+    static bool AreWallGeometriesEquivalent(
+        const FProximaWallData& A,
+        const FProximaWallData& B,
+        float ToleranceCm = 0.1f);
+
     /** Runtime representation owners subscribe to this without making Actors authoritative. */
     FProximaWallsChanged& OnWallsChanged() { return WallsChanged; }
 
@@ -49,6 +75,9 @@ private:
 
     UPROPERTY(Transient)
     TArray<FProximaWallData> Walls;
+
+    UPROPERTY(Transient)
+    TArray<FProximaSlabData> Slabs;
 
     TMap<FGuid, int32> WallIdToIndex;
     FProximaWallsChanged WallsChanged;

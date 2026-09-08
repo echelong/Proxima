@@ -10,7 +10,7 @@ class PROXIMA_API UProximaSerializationUtility : public UBlueprintFunctionLibrar
     GENERATED_BODY()
 
 public:
-    static constexpr int32 CurrentSaveFormatVersion = 1;
+    static constexpr int32 CurrentSaveFormatVersion = 2;
 
     UFUNCTION(BlueprintPure, Category = "Proxima|Serialization")
     static int32 GetSaveFormatVersion() { return CurrentSaveFormatVersion; }

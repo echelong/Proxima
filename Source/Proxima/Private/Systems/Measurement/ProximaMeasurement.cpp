@@ -31,5 +31,6 @@ bool UProximaMeasurement::TryParseMetricString(const FString& Input, float& OutC
     }
 
     OutCentimeters = bCentimeters ? NumericValue : MetersToCm(NumericValue);
+    if (!FMath::IsFinite(OutCentimeters)) { OutCentimeters = 0.0f; return false; }
     return true;
 }

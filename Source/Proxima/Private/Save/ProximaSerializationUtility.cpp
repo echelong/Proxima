@@ -2,5 +2,6 @@
 
 bool UProximaSerializationUtility::ValidateSaveVersion(int32 Version)
 {
-    return Version == CurrentSaveFormatVersion;
+    // V1 has no Slabs property; Unreal initializes the missing array empty.
+    return Version == 1 || Version == CurrentSaveFormatVersion;
 }

@@ -1,111 +1,125 @@
-# Live Mode Movement / Build Camera — Autonomy Handoff (Proxima UE5)
+# Current handoff notice
 
-## Status
-Live Mode movement, third-person camera, sprint, Build Mode dedicated construction camera, Live↔Build transition, and new camera math tests all implemented. Compile verified (UE 5.8.2 Linux, Clang 20.1.8). All existing + new automation tests pass.
+The latest source milestone is documented in [HOUSE_WORKSHOP.md](HOUSE_WORKSHOP.md).
+Read [AUTONOMOUS_LAST_VERIFY.md](AUTONOMOUS_LAST_VERIFY.md) before continuing.
+The historical handoff below describes the preceding wall-only implementation.
+Its compile/playtest-before-push requirement remains in force.
 
-## Files Added
-- Source/Proxima/Public/BuildMode/ProximaBuildCamera.h
-- Source/Proxima/Private/BuildMode/ProximaBuildCamera.cpp
-- Source/Proxima/Tests/Private/Tests/CameraMovementTest.cpp
+---
 
-## Files Modified
-- Source/Proxima/Public/Core/ProximaCharacter.h / .cpp (spring arm + camera + sprint + movement bindings)
-- Source/Proxima/Public/Core/ProximaPlayerController.h / .cpp (build camera ownership, input gating, transition, live/build camera activate/deactivate)
-- Config/DefaultInput.ini (WASD, MouseX/Y, MouseWheel, Sprint, BuildPan axes)
+# Proxima — Live/Build First-Playable Handoff
 
-## Architecture Decisions
-- Persistent building data unchanged; only camera/pawn/controller are transient.
-- Build camera = dedicated AProximaBuildCamera actor spawned once by controller on toggle; stays alive but only used as view target during Build.
-- No new GameMode; interaction mode (Live/Build) from existing UProximaInteractionSubsystem governs behavior.
-- Character keeps spring arm + camera in Live; controller switches SetViewTargetWithBlend between pawn and build camera.
-- Movement axes bound in Character; controller gates with IsBuildModeActive() so WASD does not move character during build.
-- Build camera controls (W/A/S/D pan, mouse wheel zoom, mouse X rotate) only active in Build via controller bindings.
+## Current review state
 
-## Ownership / Lifetime
-- AProximaCharacter: persistent pawn with spring arm/camera; survives mode toggles.
-- AProximaBuildCamera: controller-owned; spawned once when entering Build; not destroyed per frame; never persisted to building data.
-- Wall placement session / preview / runtime walls: unchanged; wall placement still works during build.
+This file reflects the independent manual code review performed after local checkpoint `63f4345`.
+The review patch must still be compiled and PIE-tested on the Fedora/UE 5.8.2 workstation before merge/push.
 
-## Input Controls (exact)
-- W/A/S/D: Live movement (character); Build pan (build camera, gated by mode)
-- Mouse: Live look (character); Build rotate (build camera, gated by mode)
-- Left Shift: Sprint (live only; disabled in build)
-- B: Toggle Live ↔ Build (pressed event, no hold-repeat)
-- LMB: Start / confirm wall (build only)
-- RMB / Escape: Cancel placement (build only)
-- Ctrl+Z / Ctrl+Y: Undo / redo (build only)
-- Mouse wheel: Zoom build camera (build only)
+## Architecture
 
-## Live Mode Camera
-- USpringArmComponent + UCameraComponent on AProximaCharacter.
-- Distance 700 cm, lag enabled, bUsePawnControlRotation true.
-- Character rotates with camera (bOrientRotationToMovement true).
-- Walk speed 450 cm/s; sprint 750 cm/s; configurable via EditDefaultsOnly properties.
+- Persistent `FProximaWallData` in `UProximaBuildingManager` remains authoritative.
+- Runtime wall Actors are rebuilt representations and are never save-file truth.
+- Stable wall IDs remain GUID-backed.
+- Undo/redo remains command-based.
+- Build Mode is an interaction mode in `UProximaInteractionSubsystem`, not a GameMode swap.
+- Unreal world coordinates are centimetres: 1 UU = 1 cm.
+- The engine BasicShapes cube is 100 cm; `LengthCm / 100` is mesh scaling only.
 
-## Build Mode Camera
-- AProximaBuildCamera: pivot scene component + spring arm + camera.
-- Pan on horizontal plane (derived from yaw); zoom clamped 200–3000 cm; rotate around vertical axis.
-- Default pitch -55°; initialized over property center + 200 cm.
-- No per-tick spawning; only SetViewTargetWithBlend called on toggle.
+## Input ownership
 
-## Transition Flow
-- Enter Build: interaction mode → Build; spawn/activate build camera; show mouse; set GameAndUI input mode.
-- Exit Build: interaction mode → Live; set view back to character; hide mouse; set GameOnly input mode; cancel unfinished placement.
-- Repeated B toggles: no leaks, no duplicate build cameras, no corruption of wall state.
+The controller is the single gameplay-input owner.
 
-## Wall Placement Compatibility
-- Mouse-to-build-plane tracing unchanged (UProximaBuildPlaneTrace).
-- Preview uses same UpdatePreview logic; snapping still endpoint+grid.
-- Confirm/cancel still create/destroy persistent FProximaWallData via commands.
-- Build camera rotation/pan does not affect placement because build plane is fixed horizontal (Z = BuildPlaneZCm).
+Legacy input is used deliberately:
 
-## Tests Added
-- Proxima.Camera.Math (5 assertions): horizontal forward/right from yaw, yaw mod, zoom clamping, pitch clamp — all pass.
-- Existing 8 Proxima tests preserved and passing: WallData, WallDataExtended, ExactLength, WallGeometry, WallSnapping, Measurement, Snapping, plus new Math.
+- `DefaultPlayerInputClass=/Script/Engine.PlayerInput`
+- `DefaultInputComponentClass=/Script/Engine.InputComponent`
+- the unused Enhanced Input project dependency/plugin is removed
 
-## Compile Result
-Succeeded (6/6 actions, libUnrealEditor-Proxima.so linked). 3 focused fix cycles used (SpringArm include, FInputMode, sprint access, mouse lock enum, camera test math).
+`AProximaPlayerController` binds and routes:
 
-## Warnings / Unresolved
-- DefaultInput.ini overrides some engine defaults (expected for prototype input binding).
-- Build camera does not rotate around mouse cursor (pan/rotate only); fine for v0.1.
-- No camera animation beyond SetViewTargetWithBlend (0.3s); acceptable prototype.
-- Movement input is partially delegated to character's own SetupPlayerInputComponent bindings; controller gates mode only.
+- `MoveForward`: W/S
+- `MoveRight`: D/A
+- `Turn`: MouseX
+- `LookUp`: MouseY
+- `BuildZoom`: MouseWheelAxis
+- Shift press/release: sprint
+- B: Live/Build toggle
+- MMB press/release: Build camera rotation gate
+- LMB: start/confirm wall
+- RMB/Escape: cancel current wall chain/preview
+- Ctrl+Z / Ctrl+Y: undo/redo
+- F5/F9: prototype save/load
 
-## Compromises
-- No polished HUD, no blueprint camera assets, no animation blending.
-- Build camera pan uses fixed speed (not mouse-drag); acceptable per spec.
-- No multi-touch / gamepad camera controls.
+`AProximaCharacter::SetupPlayerInputComponent` intentionally owns no gameplay bindings.
+In Live mode the controller forwards movement axes to the Character. In Build mode the same axes pan the Build camera, so the pawn cannot move behind the construction view.
 
-## Manual Setup Required
-- Ensure Config/DefaultInput.ini is included in project (already edited).
-- Confirm /Engine/BasicShapes/Cube available (existing).
-- No external assets needed.
+## Live camera
 
-## Top 5 Manual Review Points
-1. Character spring arm bUsePawnControlRotation must stay true for mouse look; verify after build.
-2. Build camera spawned only when Build active; verify no duplicate actors after rapid B presses.
-3. Mouse cursor visible in Build (bShowMouseCursor = true) for placement; hidden in Live.
-4. Wall preview still appears only when Previewing state; destroyed when exiting build.
-5. Sprint disables automatically when entering Build (IsBuildModeActive check); verify no residual sprint speed.
+- Character owns spring arm + camera.
+- Camera follows controller yaw/pitch.
+- Character movement vectors use control yaw and the Character rotates toward movement direction.
+- Walk and sprint speeds remain configurable.
+- Entering Build clears sprint state.
 
-## Recommended Next Step
-Add mouse-drag rotation for build camera (MMB drag) and optional Q/E fine rotation; extend to support property origin offset for larger properties.
+## Build camera
 
-## Stopping Condition Verification
-1. Compile success ✓
-2. Existing tests pass ✓
-3. New deterministic camera/math tests pass ✓
-4. WASD live movement implemented ✓
-5. Mouse look implemented ✓
-6. Sprint implemented ✓
-7. Third-person live camera exists ✓
-8. Build camera usable ✓
-9. Build camera pan ✓
-10. Build camera zoom ✓
-11. Build camera rotation ✓
-12. Live↔Build transition implemented ✓
-13. Normal movement disabled in build ✓
-14. Wall placement controls preserved ✓
-15. No per-tick camera spawning ✓
-16. No commit or push ✓
+- Controller owns one transient `AProximaBuildCamera` Actor.
+- It is spawned once on first Build entry and preserved across toggles.
+- WASD pans relative to Build-camera yaw.
+- Mouse wheel changes spring-arm distance without frame-time scaling.
+- MMB + MouseX rotates yaw; ordinary mouse movement alone does not rotate the Build camera.
+- Build view uses a fixed downward pitch and bounded zoom.
+
+## Wall placement
+
+- Cursor projection now intersects the deprojected mouse ray directly with the horizontal build plane. Existing wall meshes cannot distort the cursor XY by intercepting a visibility trace first.
+- Endpoint snapping still takes precedence over grid snapping.
+- Confirming a wall chains naturally: the confirmed snapped endpoint becomes the next wall start.
+- RMB/Escape breaks the chain and returns to choosing a fresh start point.
+- `PreviewLengthM` is reset correctly between placement states.
+- A lightweight world-space debug label displays the current preview length such as `3.00 m`.
+- Duplicate wall geometry is preview-rejected and, importantly, is also rejected authoritatively by `UProximaBuildingManager`, so other callers cannot bypass the rule.
+
+## Save/load
+
+- Save payload remains versioned V1 and contains persistent data only.
+- F5 saves the current persistent wall model.
+- F9 loads through an atomic `ReplaceWalls` operation, causing one persistent-state broadcast/runtime rebuild rather than reset + N incremental rebuilds + an extra rebuild.
+- Loading clears command history because undo/redo commands from the pre-load timeline are no longer valid.
+- A Build-mode load resets the active wall preview/chain.
+- Save automation uses a unique slot and deletes it after the test.
+
+## Automated coverage added/strengthened by manual review
+
+Existing test names remain stable. Assertions now additionally cover:
+
+- direct horizontal build-plane ray intersection
+- chained wall-session state
+- direction-independent duplicate-wall geometry
+- atomic loaded-wall replacement
+- duplicate replacement rejection without partial mutation
+- automation save-slot cleanup
+
+## Manual PIE gate still required
+
+Before merge/push, verify in PIE:
+
+1. Live W, A, S, D all move in the expected directions.
+2. Mouse yaw/pitch works in Live.
+3. Shift sprints and never remains stuck after Build toggles.
+4. B repeatedly toggles Live/Build without camera duplication or cursor corruption.
+5. Build W/A/S/D pan relative to the current Build-camera yaw.
+6. Mouse alone moves the wall cursor but does not rotate the Build camera.
+7. Hold MMB and move the mouse: Build camera rotates.
+8. Mouse wheel zooms in/out and respects bounds.
+9. LMB start/confirm works and subsequent walls automatically chain from the last endpoint.
+10. RMB/Escape breaks a chain and allows choosing a fresh start.
+11. The preview length label is visible and numerically plausible.
+12. Wall cursor remains on the construction plane even when hovering over an existing wall.
+13. Duplicate walls cannot be confirmed/created.
+14. Ctrl+Z / Ctrl+Y preserve sensible placement state.
+15. F5 save -> modify layout -> F9 load restores the saved layout.
+16. After F9, old pre-load undo history cannot mutate the restored timeline.
+
+## Git policy
+
+Do not push this manual-review patch until UE 5.8.2 compilation, the full `Proxima` automation suite, and the manual PIE gate above are green.

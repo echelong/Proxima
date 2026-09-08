@@ -13,7 +13,21 @@
     "Plugins": [
         {
             "Name": "EnhancedInput",
-            "Enabled": true
+            "Enabled": false
+        },
+        {
+            "Name": "PythonScriptPlugin",
+            "Enabled": true,
+            "TargetAllowList": [
+                "Editor"
+            ]
+        },
+        {
+            "Name": "EditorScriptingUtilities",
+            "Enabled": true,
+            "TargetAllowList": [
+                "Editor"
+            ]
         }
     ]
 }

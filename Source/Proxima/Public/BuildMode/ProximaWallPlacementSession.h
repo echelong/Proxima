@@ -21,7 +21,8 @@ public:
     void BeginPlacement();
     void CancelPlacement();
     void ConfirmStart(const FVector2D& StartCm);
-    void UpdateEndpoint(const FVector2D& CandidateCm, const FVector2D& SnappedCm);
+    void ContinueFromCurrentEndpoint();
+    void UpdateEndpoint(const FVector2D& CandidateCm, const FVector2D& SnappedCm, bool bDuplicateGeometry = false);
 
     bool IsActive() const { return CurrentState != EProximaPlacementState::Inactive; }
     EProximaPlacementState GetState() const { return CurrentState; }

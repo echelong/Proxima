@@ -12,12 +12,19 @@ class PROXIMA_API UProximaBuildPlaneTrace : public UBlueprintFunctionLibrary
 public:
     /**
      * Resolves the mouse cursor onto the active horizontal construction plane.
-     * A visibility trace is used first for useful XY targeting, then the result is
-     * projected to PlaneZ so persistent wall data remains on the active storey plane.
+     * The deprojected cursor ray is intersected directly with PlaneZ so walls and
+     * props cannot distort XY placement by intercepting a visibility trace first.
      */
     UFUNCTION(BlueprintCallable, Category = "Proxima|Build", meta = (WorldContext = "WorldContextObject"))
     static bool TraceBuildPlane(
         const UObject* WorldContextObject,
         FVector& OutWorldPosition,
         float PlaneZ = 0.0f);
+
+    /** Pure ray/plane intersection used by cursor projection and automation tests. */
+    static bool IntersectRayWithHorizontalPlane(
+        const FVector& RayOrigin,
+        const FVector& RayDirection,
+        float PlaneZ,
+        FVector& OutWorldPosition);
 };

@@ -2,9 +2,32 @@
 
 #include "Engine/Engine.h"
 #include "Engine/World.h"
-#include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
+
+bool UProximaBuildPlaneTrace::IntersectRayWithHorizontalPlane(
+    const FVector& RayOrigin,
+    const FVector& RayDirection,
+    float PlaneZ,
+    FVector& OutWorldPosition)
+{
+    OutWorldPosition = FVector::ZeroVector;
+
+    if (FMath::IsNearlyZero(RayDirection.Z))
+    {
+        return false;
+    }
+
+    const float T = (PlaneZ - RayOrigin.Z) / RayDirection.Z;
+    if (T < 0.0f)
+    {
+        return false;
+    }
+
+    OutWorldPosition = RayOrigin + RayDirection * T;
+    OutWorldPosition.Z = PlaneZ;
+    return true;
+}
 
 bool UProximaBuildPlaneTrace::TraceBuildPlane(
     const UObject* WorldContextObject,
@@ -34,33 +57,8 @@ bool UProximaBuildPlaneTrace::TraceBuildPlane(
         return false;
     }
 
-    const FVector RayEnd = RayOrigin + RayDirection * 1000000.0f;
-    FHitResult Hit;
-    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(ProximaBuildPlaneTrace), true);
-    if (APawn* Pawn = PlayerController->GetPawn())
-    {
-        QueryParams.AddIgnoredActor(Pawn);
-    }
-
-    if (World->LineTraceSingleByChannel(Hit, RayOrigin, RayEnd, ECC_Visibility, QueryParams))
-    {
-        OutWorldPosition = Hit.Location;
-        OutWorldPosition.Z = PlaneZ;
-        return true;
-    }
-
-    if (FMath::IsNearlyZero(RayDirection.Z))
-    {
-        return false;
-    }
-
-    const float T = (PlaneZ - RayOrigin.Z) / RayDirection.Z;
-    if (T < 0.0f)
-    {
-        return false;
-    }
-
-    OutWorldPosition = RayOrigin + RayDirection * T;
-    OutWorldPosition.Z = PlaneZ;
-    return true;
+    // Build placement is defined on a horizontal construction plane. Intersect
+    // that plane directly so existing walls/props cannot pull the cursor XY
+    // toward their visibility-hit surface and distort true-scale placement.
+    return IntersectRayWithHorizontalPlane(RayOrigin, RayDirection, PlaneZ, OutWorldPosition);
 }

@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "Engine/GameInstance.h"
 #include "Building/ProximaWallData.h"
 #include "Building/ProximaBuildingManager.h"
 #include "Commands/ProximaWallCommands.h"

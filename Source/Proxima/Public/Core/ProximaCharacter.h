@@ -15,10 +15,10 @@ public:
     AProximaCharacter();
 
     UPROPERTY(EditDefaultsOnly, Category = "Proxima|Live", BlueprintReadOnly)
-    float WalkSpeed = 450.0f;
+    float WalkSpeed = 180.0f;
 
     UPROPERTY(EditDefaultsOnly, Category = "Proxima|Live", BlueprintReadOnly)
-    float SprintSpeed = 750.0f;
+    float SprintSpeed = 450.0f;
 
     UPROPERTY(EditDefaultsOnly, Category = "Proxima|Live", BlueprintReadOnly)
     float LiveCameraDistance = 700.0f;
@@ -41,11 +41,12 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Proxima|Live")
     void StopSprintBP() { StopSprint(); }
 
-    /** MoveForward axis handler — bound to W/S axis mappings. */
+    /** Live-mode forward movement called by the controller-owned input router. */
     void MoveForward(float Value);
 
-    /** MoveRight axis handler — bound to D/A axis mappings. */
+    /** Live-mode right movement called by the controller-owned input router. */
     void MoveRight(float Value);
+    void ToggleInspectionView();
 
 protected:
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
@@ -58,6 +59,7 @@ protected:
 
 private:
     bool bSprintRequested = false;
+    bool bInspectionView = true;
 
     void StartSprint();
     void StopSprint();

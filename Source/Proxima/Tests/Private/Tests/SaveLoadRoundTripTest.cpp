@@ -3,13 +3,16 @@
 #include "Misc/AutomationTest.h"
 #include "Save/ProximaSaveSystem.h"
 #include "Save/ProximaSaveData.h"
+#include "Save/ProximaSerializationUtility.h"
 #include "Building/ProximaBuildingManager.h"
 #include "Building/ProximaIdentifiers.h"
+#include "Engine/GameInstance.h"
+#include "UObject/StrongObjectPtr.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FProximaSaveLoadRoundTripTest,
     "Proxima.SaveLoad.VerticalSlice",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::SmokeFilter
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter
 )
 
 /**
@@ -18,6 +21,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
  */
 bool FProximaSaveLoadRoundTripTest::RunTest(const FString& Parameters)
 {
+    const FString TestSlot = FString::Printf(
+        TEXT("RoundTripTest_%s"),
+        *FGuid::NewGuid().ToString(EGuidFormats::Digits));
+
     // Phase 1: Create walls with stable GUIDs (source of truth)
     FProximaWallData WallA;
     WallA.WallId.Id.Value = FGuid::NewGuid();
@@ -45,23 +52,32 @@ bool FProximaSaveLoadRoundTripTest::RunTest(const FString& Parameters)
     const FGuid GuidA = WallA.WallId.Id.Value;
     const FGuid GuidB = WallB.WallId.Id.Value;
 
-    // Phase 2: Build manager state and save
-    UProximaBuildingManager* Manager = NewObject<UProximaBuildingManager>();
+    // Phase 2: Build manager state and save. GameInstanceSubsystem-derived
+    // objects have ClassWithin=UGameInstance, so tests must give them a valid
+    // UGameInstance Outer rather than constructing them in the transient package.
+    TStrongObjectPtr<UGameInstance> TestGameInstance(NewObject<UGameInstance>());
+    TestTrue(TEXT("Test GameInstance allocated"), TestGameInstance.IsValid());
+    if (!TestGameInstance.IsValid())
+    {
+        return false;
+    }
+
+    UProximaBuildingManager* Manager = NewObject<UProximaBuildingManager>(TestGameInstance.Get());
     Manager->ResetWalls();
 
     Manager->AddWall(WallA);
     Manager->AddWall(WallB);
     TestTrue(TEXT("BuildingManager has 2 walls"), Manager->GetAllWalls().Num() == 2);
 
-    UProximaSaveSystem* SaveSystem = NewObject<UProximaSaveSystem>();
+    UProximaSaveSystem* SaveSystem = NewObject<UProximaSaveSystem>(TestGameInstance.Get());
     UProximaSaveData* SaveData = NewObject<UProximaSaveData>();
     SaveData->Walls = Manager->GetAllWalls();
 
     TestTrue(TEXT("SaveData holds 2 walls"), SaveData->Walls.Num() == 2);
-    TestTrue(TEXT("SaveData header version is V1"),
-        SaveData->Header.Version == static_cast<int32>(EProximaSaveFormatVersion::V1));
+    TestEqual(TEXT("SaveData header uses current save format"),
+        SaveData->Header.Version, UProximaSerializationUtility::GetSaveFormatVersion());
 
-    const bool bSave = SaveSystem->SaveProperty(TEXT("RoundTripTestSlot"), SaveData);
+    const bool bSave = SaveSystem->SaveProperty(TestSlot, SaveData);
     TestTrue(TEXT("SaveProperty succeeds"), bSave);
 
     // Phase 3: Clear building manager (simulates player clearing or PIE restart)
@@ -70,18 +86,19 @@ bool FProximaSaveLoadRoundTripTest::RunTest(const FString& Parameters)
 
     // Phase 4: Load from save slot
     UProximaSaveData* LoadedData = nullptr;
-    const bool bLoad = SaveSystem->LoadProperty(TEXT("RoundTripTestSlot"), LoadedData);
+    const bool bLoad = SaveSystem->LoadProperty(TestSlot, LoadedData);
     TestTrue(TEXT("LoadProperty succeeds"), bLoad);
     TestTrue(TEXT("Loaded data is not null"), LoadedData != nullptr);
 
     if (!LoadedData)
     {
+        SaveSystem->DeleteProperty(TestSlot);
         return false;
     }
 
     // Phase 5: Verify loaded data matches saved data
-    TestTrue(TEXT("Loaded save has version V1"),
-        LoadedData->Header.Version == static_cast<int32>(EProximaSaveFormatVersion::V1));
+    TestEqual(TEXT("Loaded save uses current save format"),
+        LoadedData->Header.Version, UProximaSerializationUtility::GetSaveFormatVersion());
     TestTrue(TEXT("Loaded save has 2 walls"), LoadedData->Walls.Num() == 2);
 
     // Locate walls by GUID (mirrors what HandleLoadProperty does in the controller)
@@ -122,12 +139,9 @@ bool FProximaSaveLoadRoundTripTest::RunTest(const FString& Parameters)
             FMath::IsNearlyEqual(LoadedB.EndPoint.YCm, 400.0f));
     }
 
-    // Phase 6: Reconstruct persistent state from loaded data
+    // Phase 6: Atomically reconstruct persistent state from loaded data.
     Manager->ResetWalls();
-    for (const FProximaWallData& W : LoadedData->Walls)
-    {
-        Manager->AddWall(W);
-    }
+    TestTrue(TEXT("ReplaceWalls accepts valid loaded state"), Manager->ReplaceWalls(LoadedData->Walls));
     TestTrue(TEXT("Manager reconstructed with 2 walls"), Manager->GetAllWalls().Num() == 2);
 
     FProximaWallData ReconA, ReconB;
@@ -153,14 +167,14 @@ bool FProximaSaveLoadRoundTripTest::RunTest(const FString& Parameters)
 
     UProximaSaveData* OverwriteData = NewObject<UProximaSaveData>();
     OverwriteData->Walls = Manager->GetAllWalls();
-    const bool bOverwriteSave = SaveSystem->SaveProperty(TEXT("RoundTripTestSlot"), OverwriteData);
+    const bool bOverwriteSave = SaveSystem->SaveProperty(TestSlot, OverwriteData);
     TestTrue(TEXT("Overwrite save succeeds"), bOverwriteSave);
 
     UProximaSaveData* OverwriteLoaded = nullptr;
-    const bool bOverwriteLoad = SaveSystem->LoadProperty(TEXT("RoundTripTestSlot"), OverwriteLoaded);
+    const bool bOverwriteLoad = SaveSystem->LoadProperty(TestSlot, OverwriteLoaded);
     TestTrue(TEXT("Overwrite load succeeds"), bOverwriteLoad);
 
-    if (bOverwriteLoad && OverwriteLoaded->Walls.Num() == 1)
+    if (bOverwriteLoad && OverwriteLoaded && OverwriteLoaded->Walls.Num() == 1)
     {
         TestTrue(TEXT("Overwritten save has 1 wall"), OverwriteLoaded->Walls.Num() == 1);
         TestTrue(TEXT("Overwritten wall has new end X"),
@@ -169,6 +183,16 @@ bool FProximaSaveLoadRoundTripTest::RunTest(const FString& Parameters)
             OverwriteLoaded->Walls[0].WallId.Id.Value == GuidA);
     }
 
+    // Invalid replacement is rejected atomically rather than partially mutating state.
+    FProximaWallData DuplicateGeometry = ModifiedA;
+    DuplicateGeometry.WallId.Id.Value = FGuid::NewGuid();
+    TArray<FProximaWallData> InvalidReplacement;
+    InvalidReplacement.Add(ModifiedA);
+    InvalidReplacement.Add(DuplicateGeometry);
+    TestFalse(TEXT("ReplaceWalls rejects duplicate geometry"), Manager->ReplaceWalls(InvalidReplacement));
+    TestTrue(TEXT("Rejected replacement preserves previous manager state"), Manager->GetAllWalls().Num() == 1);
+
+    TestTrue(TEXT("Automation test save slot cleanup succeeds"), SaveSystem->DeleteProperty(TestSlot));
     return true;
 }
 

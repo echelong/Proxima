@@ -24,3 +24,8 @@ Thumbs.db
 Makefile
 *.code-workspace
 .ignore
+
+# Local workshop build output
+Dist/
+__pycache__/
+*.pyc

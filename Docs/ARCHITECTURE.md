@@ -1,7 +1,7 @@
 # Proxima Architecture
 
 ## Engine
-Unreal Engine 5.5 project scaffold. C++ owns core rules and persistent models; Blueprint exposure is used at system boundaries where designer iteration is valuable.
+Unreal Engine 5.8.2 C++ project. C++ owns core rules and persistent models; Blueprint exposure is used at system boundaries where designer iteration is valuable.
 
 ## Primary rule: data is the truth
 Persistent architectural data is independent from runtime Actors. Runtime wall meshes/Actors must be reconstructed deterministically from saved model data.
@@ -34,3 +34,12 @@ Architectural entities use GUID-backed IDs so creating new entities after loadin
 
 ## Catalog
 `UProximaCatalog` is a data asset for built-in catalog metadata. Future runtime/UGC registries can merge external sources without changing persistent building geometry, which stores stable catalog IDs rather than hard Actor references.
+
+## House workshop update
+
+`UProximaWorkshopComponent` now owns local build-tool gestures, Slate UI and runtime
+representations. The controller owns input and camera routing. The building model
+adds rectangular `FProximaSlabData`; `UProximaModelCommand` groups room changes.
+`ProximaGeometryKernel.h` supplies shared production geometry to the runtime renderer
+and standalone C++ tests. Save format V2 adds slab payloads and accepts valid V1 saves.
+See HOUSE_WORKSHOP.md for exact scope and outstanding Unreal verification.

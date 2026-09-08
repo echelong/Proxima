@@ -4,6 +4,7 @@
 #include "GameFramework/SaveGame.h"
 #include "Building/ProximaPropertyData.h"
 #include "Building/ProximaWallData.h"
+#include "Building/ProximaSlabData.h"
 #include "Systems/Measurement/ProximaMeasurementSubsystem.h"
 #include "ProximaSaveData.generated.h"
 
@@ -11,7 +12,8 @@ UENUM(BlueprintType)
 enum class EProximaSaveFormatVersion : uint8
 {
     Invalid = 0 UMETA(Hidden),
-    V1 = 1
+    V1 = 1,
+    V2 = 2
 };
 
 USTRUCT(BlueprintType)
@@ -23,7 +25,7 @@ struct FProximaSaveHeader
     FName Format = FName(TEXT("ProximaSave"));
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, SaveGame)
-    int32 Version = static_cast<int32>(EProximaSaveFormatVersion::V1);
+    int32 Version = static_cast<int32>(EProximaSaveFormatVersion::V2);
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, SaveGame)
     FDateTime SaveTimeUtc;
@@ -56,4 +58,7 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, SaveGame)
     FProximaMeasurementConfig MeasurementConfig;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, SaveGame)
+    TArray<FProximaSlabData> Slabs;
 };

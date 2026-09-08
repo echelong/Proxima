@@ -101,6 +101,8 @@ struct FProximaWallData
     UPROPERTY(EditAnywhere, BlueprintReadWrite, SaveGame)
     TArray<FProximaWallID> ConnectedWalls;
 
+    /** Checks finite dimensions and every opening, including overlap and duplicate IDs. */
+    bool IsValid() const;
     float GetLengthCm() const;
     bool IsDegenerate(float ToleranceCm = 0.01f) const;
     FVector GetStartWorld(const FVector& PropertyOriginCm, float FloorElevationCm = 0.0f) const;
