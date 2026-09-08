@@ -143,6 +143,119 @@ int main()
                 Intersection),
             "collinear overlap became one intersection");
 
+
+        std::vector<Segment> SplitWalls;
+
+        Check(
+            SplitSegmentAtPoints(
+                {{0, 0}, {100, 0}},
+                {},
+                SplitWalls),
+            "unsplit valid wall rejected");
+
+        Check(
+            SplitWalls.size() == 1 &&
+            TopologyNear(
+                SplitWalls[0].Start,
+                {0, 0}) &&
+            TopologyNear(
+                SplitWalls[0].End,
+                {100, 0}),
+            "unsplit wall changed");
+
+        Check(
+            SplitSegmentAtPoints(
+                {{0, 0}, {100, 0}},
+                {{50, 0}},
+                SplitWalls),
+            "single wall split failed");
+
+        Check(
+            SplitWalls.size() == 2,
+            "single split did not create two walls");
+
+        Check(
+            TopologyNear(
+                SplitWalls[0].End,
+                {50, 0}) &&
+            TopologyNear(
+                SplitWalls[1].Start,
+                {50, 0}),
+            "single split junction is incorrect");
+
+        Check(
+            SplitSegmentAtPoints(
+                {{0, 0}, {100, 0}},
+                {
+                    {75, 0},
+                    {25, 0},
+                    {50, 0},
+                    {50, 0}
+                },
+                SplitWalls),
+            "multiple wall split failed");
+
+        Check(
+            SplitWalls.size() == 4,
+            "three unique split points did not create four walls");
+
+        Check(
+            TopologyNear(
+                SplitWalls[0].Start,
+                {0, 0}) &&
+            TopologyNear(
+                SplitWalls[0].End,
+                {25, 0}) &&
+            TopologyNear(
+                SplitWalls[1].End,
+                {50, 0}) &&
+            TopologyNear(
+                SplitWalls[2].End,
+                {75, 0}) &&
+            TopologyNear(
+                SplitWalls[3].End,
+                {100, 0}),
+            "multiple splits are not ordered");
+
+        Check(
+            SplitSegmentAtPoints(
+                {{0, 0}, {100, 0}},
+                {
+                    {0, 0},
+                    {100, 0}
+                },
+                SplitWalls),
+            "endpoint split request failed");
+
+        Check(
+            SplitWalls.size() == 1,
+            "existing endpoints created extra wall pieces");
+
+        Check(
+            SplitSegmentAtPoints(
+                {{0, 0}, {100, 100}},
+                {{50, 50}},
+                SplitWalls),
+            "diagonal wall split failed");
+
+        Check(
+            SplitWalls.size() == 2 &&
+            TopologyNear(
+                SplitWalls[0].End,
+                {50, 50}),
+            "diagonal split position incorrect");
+
+        Check(
+            !SplitSegmentAtPoints(
+                {{0, 0}, {100, 0}},
+                {{50, 10}},
+                SplitWalls),
+            "off-wall split point accepted");
+
+        Check(
+            SplitWalls.empty(),
+            "failed split left stale output");
+
         std::mt19937 Random(73521);
         for (int Trial = 0; Trial < 1000; ++Trial)
         {

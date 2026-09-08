@@ -179,4 +179,117 @@ inline bool SegmentIntersection(
     return Finite(Out);
 }
 
+
+inline bool SplitSegmentAtPoints(
+    const Segment& Source,
+    const std::vector<Point>& SplitPoints,
+    std::vector<Segment>& Out,
+    double Tolerance = 0.1)
+{
+    Out.clear();
+
+    if (!Finite(Source.Start) ||
+        !Finite(Source.End))
+    {
+        return false;
+    }
+
+    const double SourceLength =
+        Length(Source.Start, Source.End);
+
+    if (SourceLength <= Epsilon)
+    {
+        return false;
+    }
+
+    const double Tol =
+        std::max(0.0, Tolerance);
+
+    struct OrderedSplit
+    {
+        double Along = 0.0;
+        Point Position;
+    };
+
+    std::vector<OrderedSplit> Ordered;
+
+    for (const Point Requested : SplitPoints)
+    {
+        if (!Finite(Requested) ||
+            !TopologyPointOnSegment(
+                Requested,
+                Source.Start,
+                Source.End,
+                Tol))
+        {
+            Out.clear();
+            return false;
+        }
+
+        double Along = 0.0;
+
+        const Point Projected =
+            ClosestPoint(
+                Requested,
+                Source.Start,
+                Source.End,
+                &Along);
+
+        // Existing endpoints are already topology nodes.
+        if (Along <= Tol ||
+            SourceLength - Along <= Tol)
+        {
+            continue;
+        }
+
+        bool Duplicate = false;
+
+        for (const OrderedSplit& Existing : Ordered)
+        {
+            if (std::abs(
+                    Existing.Along - Along) <= Tol)
+            {
+                Duplicate = true;
+                break;
+            }
+        }
+
+        if (!Duplicate)
+        {
+            Ordered.push_back(
+                {Along, Projected});
+        }
+    }
+
+    std::sort(
+        Ordered.begin(),
+        Ordered.end(),
+        [](const OrderedSplit& A,
+           const OrderedSplit& B)
+        {
+            return A.Along < B.Along;
+        });
+
+    Point Current = Source.Start;
+
+    for (const OrderedSplit& Split : Ordered)
+    {
+        if (Length(Current, Split.Position) > Epsilon)
+        {
+            Out.push_back(
+                {Current, Split.Position});
+        }
+
+        Current = Split.Position;
+    }
+
+    if (Length(Current, Source.End) > Epsilon)
+    {
+        Out.push_back(
+            {Current, Source.End});
+    }
+
+    return !Out.empty();
+}
+
 }
