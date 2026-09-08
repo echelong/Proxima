@@ -292,4 +292,429 @@ inline bool SplitSegmentAtPoints(
     return !Out.empty();
 }
 
+
+struct ClosedFace
+{
+    std::vector<Point> Vertices;
+    double AreaCm2 = 0.0;
+};
+
+inline double PolygonSignedArea(
+    const std::vector<Point>& Vertices)
+{
+    if (Vertices.size() < 3)
+    {
+        return 0.0;
+    }
+
+    double TwiceArea = 0.0;
+
+    for (std::size_t I = 0;
+         I < Vertices.size();
+         ++I)
+    {
+        const Point A = Vertices[I];
+        const Point B =
+            Vertices[
+                (I + 1) %
+                Vertices.size()];
+
+        TwiceArea +=
+            A.X * B.Y -
+            B.X * A.Y;
+    }
+
+    return TwiceArea * 0.5;
+}
+
+/*
+ * Detects bounded faces in an already-normalized planar wall graph.
+ *
+ * Wall intersections must already be split into explicit endpoints.
+ * Positive-area faces are returned counter-clockwise.
+ * The unbounded exterior face and open chains are ignored.
+ */
+inline bool DetectClosedFaces(
+    const std::vector<Segment>& Segments,
+    std::vector<ClosedFace>& OutFaces,
+    double Tolerance = 0.1)
+{
+    OutFaces.clear();
+
+    const double Tol =
+        std::max(
+            0.0,
+            Tolerance);
+
+    struct Node
+    {
+        Point Position;
+        std::vector<int> Outgoing;
+    };
+
+    struct HalfEdge
+    {
+        int From = -1;
+        int To = -1;
+        int Twin = -1;
+        bool Visited = false;
+    };
+
+    std::vector<Node> Nodes;
+    std::vector<HalfEdge> Edges;
+
+    auto FindOrAddNode =
+        [&](Point Position) -> int
+        {
+            for (std::size_t I = 0;
+                 I < Nodes.size();
+                 ++I)
+            {
+                if (TopologyNear(
+                        Nodes[I].Position,
+                        Position,
+                        Tol))
+                {
+                    return
+                        static_cast<int>(I);
+                }
+            }
+
+            Nodes.push_back(
+                {Position, {}});
+
+            return
+                static_cast<int>(
+                    Nodes.size() - 1);
+        };
+
+    for (const Segment& Source :
+         Segments)
+    {
+        if (!Finite(Source.Start) ||
+            !Finite(Source.End) ||
+            Length(
+                Source.Start,
+                Source.End) <= Epsilon)
+        {
+            OutFaces.clear();
+            return false;
+        }
+
+        const int A =
+            FindOrAddNode(
+                Source.Start);
+
+        const int B =
+            FindOrAddNode(
+                Source.End);
+
+        if (A == B)
+        {
+            OutFaces.clear();
+            return false;
+        }
+
+        const int Forward =
+            static_cast<int>(
+                Edges.size());
+
+        const int Reverse =
+            Forward + 1;
+
+        Edges.push_back(
+            {A, B, Reverse, false});
+
+        Edges.push_back(
+            {B, A, Forward, false});
+
+        Nodes[A].Outgoing.push_back(
+            Forward);
+
+        Nodes[B].Outgoing.push_back(
+            Reverse);
+    }
+
+    for (std::size_t NodeIndex = 0;
+         NodeIndex < Nodes.size();
+         ++NodeIndex)
+    {
+        std::vector<int>& Outgoing =
+            Nodes[NodeIndex].Outgoing;
+
+        std::sort(
+            Outgoing.begin(),
+            Outgoing.end(),
+            [&](int Left, int Right)
+            {
+                const HalfEdge& L =
+                    Edges[
+                        static_cast<
+                            std::size_t>(
+                                Left)];
+
+                const HalfEdge& R =
+                    Edges[
+                        static_cast<
+                            std::size_t>(
+                                Right)];
+
+                const Point Origin =
+                    Nodes[NodeIndex]
+                        .Position;
+
+                const Point LP =
+                    Nodes[
+                        static_cast<
+                            std::size_t>(
+                                L.To)]
+                        .Position;
+
+                const Point RP =
+                    Nodes[
+                        static_cast<
+                            std::size_t>(
+                                R.To)]
+                        .Position;
+
+                const double LA =
+                    std::atan2(
+                        LP.Y - Origin.Y,
+                        LP.X - Origin.X);
+
+                const double RA =
+                    std::atan2(
+                        RP.Y - Origin.Y,
+                        RP.X - Origin.X);
+
+                if (std::abs(
+                        LA - RA) <=
+                    Epsilon)
+                {
+                    return Left < Right;
+                }
+
+                return LA < RA;
+            });
+    }
+
+    const double MinArea =
+        std::max(
+            Epsilon,
+            Tol * Tol);
+
+    for (std::size_t StartIndex = 0;
+         StartIndex < Edges.size();
+         ++StartIndex)
+    {
+        if (Edges[StartIndex].Visited)
+        {
+            continue;
+        }
+
+        const int Start =
+            static_cast<int>(
+                StartIndex);
+
+        int Current = Start;
+
+        std::vector<Point>
+            FaceVertices;
+
+        bool Closed = false;
+
+        for (std::size_t Guard = 0;
+             Guard <=
+                 Edges.size() + 1;
+             ++Guard)
+        {
+            HalfEdge& Edge =
+                Edges[
+                    static_cast<
+                        std::size_t>(
+                            Current)];
+
+            if (Edge.Visited)
+            {
+                Closed =
+                    Current == Start;
+                break;
+            }
+
+            Edge.Visited = true;
+
+            FaceVertices.push_back(
+                Nodes[
+                    static_cast<
+                        std::size_t>(
+                            Edge.From)]
+                    .Position);
+
+            const int Vertex =
+                Edge.To;
+
+            const std::vector<int>&
+                Outgoing =
+                    Nodes[
+                        static_cast<
+                            std::size_t>(
+                                Vertex)]
+                        .Outgoing;
+
+            if (Outgoing.empty())
+            {
+                break;
+            }
+
+            std::size_t TwinPosition =
+                Outgoing.size();
+
+            for (std::size_t I = 0;
+                 I < Outgoing.size();
+                 ++I)
+            {
+                if (Outgoing[I] ==
+                    Edge.Twin)
+                {
+                    TwinPosition = I;
+                    break;
+                }
+            }
+
+            if (TwinPosition ==
+                Outgoing.size())
+            {
+                OutFaces.clear();
+                return false;
+            }
+
+            /*
+             * Choose the outgoing edge immediately
+             * clockwise from the incoming reverse
+             * direction. This traces the face on
+             * the left side of the directed edge.
+             */
+            const std::size_t NextPosition =
+                (
+                    TwinPosition +
+                    Outgoing.size() -
+                    1
+                ) %
+                Outgoing.size();
+
+            Current =
+                Outgoing[
+                    NextPosition];
+
+            if (Current == Start)
+            {
+                Closed = true;
+                break;
+            }
+        }
+
+        if (!Closed ||
+            FaceVertices.size() < 3)
+        {
+            continue;
+        }
+
+        const double SignedArea =
+            PolygonSignedArea(
+                FaceVertices);
+
+        // Negative cycles are exterior faces.
+        if (SignedArea <= MinArea)
+        {
+            continue;
+        }
+
+        ClosedFace Face;
+        Face.Vertices =
+            std::move(
+                FaceVertices);
+
+        Face.AreaCm2 =
+            SignedArea;
+
+        OutFaces.push_back(
+            std::move(Face));
+    }
+
+    std::sort(
+        OutFaces.begin(),
+        OutFaces.end(),
+        [](const ClosedFace& A,
+           const ClosedFace& B)
+        {
+            if (A.Vertices.empty() ||
+                B.Vertices.empty())
+            {
+                return
+                    A.Vertices.size() <
+                    B.Vertices.size();
+            }
+
+            double AMinX =
+                A.Vertices.front().X;
+
+            double AMinY =
+                A.Vertices.front().Y;
+
+            for (const Point P :
+                 A.Vertices)
+            {
+                AMinX =
+                    std::min(
+                        AMinX,
+                        P.X);
+
+                AMinY =
+                    std::min(
+                        AMinY,
+                        P.Y);
+            }
+
+            double BMinX =
+                B.Vertices.front().X;
+
+            double BMinY =
+                B.Vertices.front().Y;
+
+            for (const Point P :
+                 B.Vertices)
+            {
+                BMinX =
+                    std::min(
+                        BMinX,
+                        P.X);
+
+                BMinY =
+                    std::min(
+                        BMinY,
+                        P.Y);
+            }
+
+            if (std::abs(
+                    AMinX - BMinX) >
+                Epsilon)
+            {
+                return AMinX < BMinX;
+            }
+
+            if (std::abs(
+                    AMinY - BMinY) >
+                Epsilon)
+            {
+                return AMinY < BMinY;
+            }
+
+            return
+                A.AreaCm2 <
+                B.AreaCm2;
+        });
+
+    return true;
+}
+
 }

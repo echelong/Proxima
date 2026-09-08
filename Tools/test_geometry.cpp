@@ -256,6 +256,142 @@ int main()
             SplitWalls.empty(),
             "failed split left stale output");
 
+
+        std::vector<ClosedFace> Faces;
+
+        const std::vector<Segment>
+            RectangleLoop = {
+                {{0, 0}, {400, 0}},
+                {{400, 0}, {400, 300}},
+                {{400, 300}, {0, 300}},
+                {{0, 300}, {0, 0}}
+            };
+
+        Check(
+            DetectClosedFaces(
+                RectangleLoop,
+                Faces),
+            "rectangle face detection failed");
+
+        Check(
+            Faces.size() == 1,
+            "rectangle should produce one room");
+
+        Check(
+            Faces.size() == 1 &&
+            Faces[0].Vertices.size() == 4,
+            "rectangle room should have four vertices");
+
+        Check(
+            Faces.size() == 1 &&
+            std::abs(
+                Faces[0].AreaCm2 -
+                120000.0) <= 0.01,
+            "rectangle room area should be 12 m2");
+
+        const std::vector<Segment>
+            OpenChain = {
+                {{0, 0}, {400, 0}},
+                {{400, 0}, {400, 300}},
+                {{400, 300}, {0, 300}}
+            };
+
+        Check(
+            DetectClosedFaces(
+                OpenChain,
+                Faces),
+            "open-chain detection failed");
+
+        Check(
+            Faces.empty(),
+            "open wall chain must not create a room");
+
+        const std::vector<Segment>
+            LShapedLoop = {
+                {{0, 0}, {400, 0}},
+                {{400, 0}, {400, 200}},
+                {{400, 200}, {200, 200}},
+                {{200, 200}, {200, 400}},
+                {{200, 400}, {0, 400}},
+                {{0, 400}, {0, 0}}
+            };
+
+        Check(
+            DetectClosedFaces(
+                LShapedLoop,
+                Faces),
+            "L-shaped face detection failed");
+
+        Check(
+            Faces.size() == 1,
+            "L-shaped walls should produce one room");
+
+        Check(
+            Faces.size() == 1 &&
+            Faces[0].Vertices.size() == 6,
+            "L-shaped room should have six vertices");
+
+        Check(
+            Faces.size() == 1 &&
+            std::abs(
+                Faces[0].AreaCm2 -
+                120000.0) <= 0.01,
+            "L-shaped room area should be 12 m2");
+
+        /*
+         * Two adjacent 4m x 3m rooms.
+         * Top and bottom walls are already split
+         * at the shared partition endpoints.
+         */
+        const std::vector<Segment>
+            AdjacentRooms = {
+                {{0, 0}, {400, 0}},
+                {{400, 0}, {800, 0}},
+                {{800, 0}, {800, 300}},
+                {{800, 300}, {400, 300}},
+                {{400, 300}, {0, 300}},
+                {{0, 300}, {0, 0}},
+                {{400, 0}, {400, 300}}
+            };
+
+        Check(
+            DetectClosedFaces(
+                AdjacentRooms,
+                Faces),
+            "adjacent-room detection failed");
+
+        Check(
+            Faces.size() == 2,
+            "shared partition should create two rooms");
+
+        Check(
+            Faces.size() == 2 &&
+            std::abs(
+                Faces[0].AreaCm2 -
+                120000.0) <= 0.01 &&
+            std::abs(
+                Faces[1].AreaCm2 -
+                120000.0) <= 0.01,
+            "adjacent rooms should each be 12 m2");
+
+        const std::vector<Segment>
+            CrossingWithoutRoom = {
+                {{-300, 0}, {0, 0}},
+                {{0, 0}, {300, 0}},
+                {{0, -300}, {0, 0}},
+                {{0, 0}, {0, 300}}
+            };
+
+        Check(
+            DetectClosedFaces(
+                CrossingWithoutRoom,
+                Faces),
+            "open crossing detection failed");
+
+        Check(
+            Faces.empty(),
+            "crossing walls alone must not create a room");
+
         std::mt19937 Random(73521);
         for (int Trial = 0; Trial < 1000; ++Trial)
         {
