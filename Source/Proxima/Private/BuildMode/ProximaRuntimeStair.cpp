@@ -26,8 +26,21 @@ AProximaRuntimeStair::AProximaRuntimeStair()
     Steps->SetCollisionProfileName(
         TEXT("BlockAll"));
 
+    /*
+     * Do not rely only on the profile default here.
+     * The character must physically walk each generated stair tread.
+     */
+    Steps->SetCollisionEnabled(
+        ECollisionEnabled::QueryAndPhysics);
+
+    Steps->SetCollisionResponseToAllChannels(
+        ECollisionResponse::ECR_Block);
+
     Steps->SetGenerateOverlapEvents(
         false);
+
+    Steps->SetCanEverAffectNavigation(
+        true);
 
     static ConstructorHelpers::
         FObjectFinder<UStaticMesh>

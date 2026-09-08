@@ -1215,52 +1215,6 @@ void UProximaWorkshopComponent::UpdatePreview()
                 : TEXT(
                     "No higher storey is available.");
     }
-    else if (Tool == EProximaBuildTool::Stair)
-    {
-        FProximaFloorData UpperFloor;
-
-        if (!Model()->TryGetFloorByLevelIndex(
-                ActiveLevelIndex + 1,
-                UpperFloor))
-        {
-            Status =
-                TEXT(
-                    "Stairs need a level above the active storey.");
-
-            return;
-        }
-
-        if (!bAnchored)
-        {
-            Anchor =
-                Cursor;
-
-            bAnchored =
-                true;
-
-            Status =
-                FString::Printf(
-                    TEXT(
-                        "Stair start placed on Level %d. "
-                        "Move the cursor to choose ascent direction, "
-                        "then click again."),
-                    ActiveLevelIndex + 1);
-
-            return;
-        }
-
-        if (!bPreviewValid)
-        {
-            Status =
-                TEXT(
-                    "Choose a valid stair position. "
-                    "Stairs cannot overlap another stair flight.");
-
-            return;
-        }
-
-        CommitStair();
-    }
     else if (Tool == EProximaBuildTool::Door || Tool == EProximaBuildTool::Window)
     {
         FProximaWallData Wall;
@@ -1820,6 +1774,70 @@ void UProximaWorkshopComponent::PrimaryAction()
                 "The model is unchanged.");
         }
     }
+    else if (Tool == EProximaBuildTool::Stair)
+    {
+        FProximaFloorData UpperFloor;
+
+        if (!Model()->TryGetFloorByLevelIndex(
+                ActiveLevelIndex + 1,
+                UpperFloor))
+        {
+            Status =
+                TEXT(
+                    "Stairs require a storey above "
+                    "the active level.");
+
+            return;
+        }
+
+        /*
+         * CLICK 1:
+         * place the bottom centre of the stair flight.
+         *
+         * UpdatePreview is deliberately read-only; interaction state changes
+         * only in PrimaryAction.
+         */
+        if (!bAnchored)
+        {
+            Anchor =
+                Cursor;
+
+            bAnchored =
+                true;
+
+            bPreviewValid =
+                false;
+
+            Status =
+                FString::Printf(
+                    TEXT(
+                        "Stair bottom placed on Level %d. "
+                        "Move the cursor in the ascent direction "
+                        "and click again."),
+                    ActiveLevelIndex + 1);
+
+            return;
+        }
+
+        /*
+         * CLICK 2:
+         * UpdatePreview() at the beginning of PrimaryAction resolved the
+         * direction and validated the exact persistent stair candidate.
+         */
+        if (!bPreviewValid)
+        {
+            Status =
+                TEXT(
+                    "This stair position is invalid. "
+                    "Move it away from another stair "
+                    "and click again.");
+
+            return;
+        }
+
+        CommitStair();
+        return;
+    }
     else if (Tool == EProximaBuildTool::Door || Tool == EProximaBuildTool::Window)
     {
         FProximaWallData Wall;
@@ -1956,14 +1974,32 @@ void UProximaWorkshopComponent::CommitStair()
 
     Cancel();
 
+    const float RiseCm =
+        UpperFloor.BaseElevationCm -
+        GetActiveFloorElevationCm();
+
+    const int32 RiserCount =
+        FMath::Clamp(
+            FMath::CeilToInt(
+                RiseCm /
+                18.0f),
+            2,
+            64);
+
     Status =
         FString::Printf(
             TEXT(
-                "Straight stair built from Level %d to Level %d. "
-                "The upper floor opening was created automatically. "
+                "Straight stair built: Level %d -> Level %d | "
+                "%d risers | %.2f m run | %.2f m wide. "
+                "Upper floor opening created. "
                 "Ctrl+Z removes both."),
             ActiveLevelIndex + 1,
-            ActiveLevelIndex + 2);
+            ActiveLevelIndex + 2,
+            RiserCount,
+            Stair.GetRunCm() /
+                100.0f,
+            Stair.WidthCm /
+                100.0f);
 }
 
 void UProximaWorkshopComponent::CommitRectangle()

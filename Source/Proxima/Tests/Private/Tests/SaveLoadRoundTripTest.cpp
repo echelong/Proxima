@@ -269,6 +269,26 @@ bool FProximaSaveLoadRoundTripTest::RunTest(const FString& Parameters)
         TEXT("Test stair is valid"),
         TestStair.IsValid());
 
+    const FProximaFloorOpeningRect TestOpening =
+        TestStair.GetOpeningRect();
+
+    TestTrue(
+        TEXT("Stair opening is valid"),
+        TestOpening.IsValid());
+
+    TestTrue(
+        TEXT("Stair opening matches stair run and width"),
+        FMath::IsNearlyEqual(
+            TestOpening.MaxCm.X -
+                TestOpening.MinCm.X,
+            TestStair.WidthCm,
+            0.1f) &&
+        FMath::IsNearlyEqual(
+            TestOpening.MaxCm.Y -
+                TestOpening.MinCm.Y,
+            TestStair.GetRunCm(),
+            0.1f));
+
     TArray<FProximaStairData> TestStairs;
     TestStairs.Add(
         TestStair);

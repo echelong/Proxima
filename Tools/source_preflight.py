@@ -43,7 +43,66 @@ def main():
         ast.parse(path.read_text(), filename=str(path))
     if not (ROOT / 'Source/Proxima/Public/Building/ProximaGeometryKernel.h').is_file():
         raise ValueError('Production geometry kernel is missing')
-    print('PASS: Unreal target, EnhancedInput disabled, automatic upgrade off, input ownership, WASD and Python syntax.')
+
+    # Stair interaction routing:
+    # UpdatePreview must remain visual/read-only, while clicks belong to
+    # PrimaryAction. A previous regression placed CommitStair inside preview,
+    # making the tool respond to mouse movement instead of clicks.
+    workshop_cpp = (
+        ROOT /
+        'Source/Proxima/Private/BuildMode/ProximaWorkshopComponent.cpp'
+    ).read_text()
+
+    preview_start = workshop_cpp.find(
+        'void UProximaWorkshopComponent::UpdatePreview()'
+    )
+    preview_end = workshop_cpp.find(
+        'bool UProximaWorkshopComponent::FindWallAtCursor',
+        preview_start
+    )
+    primary_start = workshop_cpp.find(
+        'void UProximaWorkshopComponent::PrimaryAction()'
+    )
+    primary_end = workshop_cpp.find(
+        'bool UProximaWorkshopComponent::CommitModel(',
+        primary_start
+    )
+
+    if min(
+        preview_start,
+        preview_end,
+        primary_start,
+        primary_end
+    ) < 0:
+        raise ValueError(
+            'Could not inspect Workshop interaction routing'
+        )
+
+    preview_section = workshop_cpp[
+        preview_start:
+        preview_end
+    ]
+
+    primary_section = workshop_cpp[
+        primary_start:
+        primary_end
+    ]
+
+    if 'CommitStair();' in preview_section:
+        raise ValueError(
+            'Stair interaction routing is invalid: '
+            'UpdatePreview must never commit stairs'
+        )
+
+    if (
+        'Tool == EProximaBuildTool::Stair' not in primary_section or
+        'CommitStair();' not in primary_section
+    ):
+        raise ValueError(
+            'Stair interaction routing is invalid: '
+            'PrimaryAction must own stair clicks and CommitStair'
+        )
+    print('PASS: Unreal target, EnhancedInput disabled, automatic upgrade off, input ownership, WASD, stair interaction routing and Python syntax.')
     print('This check does not compile Unreal C++ or verify rendering.')
     return 0
 
