@@ -20,7 +20,7 @@ index aee0f1f..f8627fb 100644
  GlobalDefaultGameMode=/Script/Proxima.ProximaGameMode
 +GameDefaultMap=/Game/Proxima/Maps/Workshop.Workshop
 +EditorStartupMap=/Game/Proxima/Maps/Workshop.Workshop
- 
+
  [/Script/AndroidFileServerEditor.AndroidFileServerRuntimeSettings]
  bEnablePlugin=False
 @@ -14,3 +16,11 @@ bReportStats=False
@@ -67,15 +67,15 @@ index 1e28d2b..4155ba0 100644
 +++ b/Docs/ARCHITECTURE.md
 @@ -1,7 +1,7 @@
  # Proxima Architecture
- 
+
  ## Engine
 -Unreal Engine 5.5 project scaffold. C++ owns core rules and persistent models; Blueprint exposure is used at system boundaries where designer iteration is valuable.
 +Unreal Engine 5.8.2 C++ project. C++ owns core rules and persistent models; Blueprint exposure is used at system boundaries where designer iteration is valuable.
- 
+
  ## Primary rule: data is the truth
  Persistent architectural data is independent from runtime Actors. Runtime wall meshes/Actors must be reconstructed deterministically from saved model data.
 @@ -34,3 +34,12 @@ Architectural entities use GUID-backed IDs so creating new entities after loadin
- 
+
  ## Catalog
  `UProximaCatalog` is a data asset for built-in catalog metadata. Future runtime/UGC registries can merge external sources without changing persistent building geometry, which stores stable catalog IDs rather than hard Actor references.
 +
@@ -127,7 +127,7 @@ index cc9c385..0eefc9e 100644
 +---
 +
  # Proxima — Live/Build First-Playable Handoff
- 
+
  ## Current review state
 diff --git a/Docs/AUTONOMOUS_LAST_VERIFY.md b/Docs/AUTONOMOUS_LAST_VERIFY.md
 index d596874..d284095 100644
@@ -136,11 +136,11 @@ index d596874..d284095 100644
 @@ -1,48 +1,32 @@
 -# AUTONOMOUS VERIFICATION
 +# Current verification state
- 
+
 -Generated: 2026-09-06T22:05:00+03:00
 +Source milestone: house-building workshop, prepared from the user's uploaded local source.
 +Date: 2026-09-08.
- 
+
 -Cycle: 2
 -Claude exit code: 0
 -Branch: auto/claude-openai-10h
@@ -150,7 +150,7 @@ index d596874..d284095 100644
 -Proxima test count: 10
 +**This source has not been compiled with Unreal Engine.** Earlier green build
 +claims in historical worklogs do not verify this revision.
- 
+
 -## Current Git Status
 -```
 - (clean working tree — all changes committed)
@@ -165,14 +165,14 @@ index d596874..d284095 100644
 +- Proxima Unreal tests: 15 authored test names, NOT RUN for this source.
 +- Native playtest / graphics / collision / packaging: NOT RUN.
 +- GitHub push: NOT PERFORMED; existing handoff requires UE and manual playtest gates.
- 
+
 -## Prioritized Status
 -- Priority 1 (input): GREEN — WASD input architecture stabilized (controller polling, legacy .ini classes)
 -- Priority 2 (camera): GREEN — Live/Build camera architecture implemented; no per-tick spawning, no leaks, no duplicate bindings
 -- Priority 3 (wall ergonomics): GREEN — length metric (PreviewLengthM), duplicate rejection, zero-length guard, chained placement, preserved command undo/redo
 -- Priority 4 (save/load): GREEN — existing architecture meets spec (persistent FProximaWallData only, no actor pointers, GUID stable, versioned header)
 +Next action on the Linux workstation:
- 
+
 -## Test Inventory (10 total, all green)
 -1. Proxima.Building.WallData
 -2. Proxima.Building.WallDataExtended
@@ -186,7 +186,7 @@ index d596874..d284095 100644
 +```bash
 +bash Tools/linux_workshop.sh --play
 +```
- 
+
 -## Local Commits (3 checkpoint commits this run)
 -- 996087b fix: stabilize WASD input architecture — legacy .ini, controller polling, no duplicate bindings; 9/9 tests green
 -- 6ab22f5 feat: wall ergonomics — length metric, duplicate rejection, zero-length guard; preserve undo/redo + persistent data
@@ -194,7 +194,7 @@ index d596874..d284095 100644
 +Read `Docs/HOUSE_WORKSHOP.md` for the implementation, exact limitations, Linux
 +runner behavior and manual checklist. Build/test reports are written into fresh
 +`Saved/WorkshopChecks/run.*` folders so old success output cannot pass a new run.
- 
+
 -## Manual PIE Checks Needed
 -- WASD movement in Live Mode (W, A, S, D all functional)
 -- Shift sprint
@@ -380,7 +380,7 @@ index 06d613a..2b98fd4 100644
 +---
 +
  # Proxima Roadmap
- 
+
  ## V0.1 - Foundation stabilization (current)
 diff --git a/Proxima.uproject b/Proxima.uproject
 index 9de7f5a..a8127bd 100644
@@ -413,7 +413,7 @@ index e0b4417..429b3e7 100644
 --- a/README.md
 +++ b/README.md
 @@ -27,3 +27,17 @@ Unreal Engine 5
- 
+
  Core gameplay systems will primarily use C++, with Blueprints used where
  rapid visual iteration is useful.
 +
@@ -519,7 +519,7 @@ index 92e2697..07d73c5 100644
  #include "Materials/MaterialInterface.h"
 +#include "Materials/MaterialInstanceDynamic.h"
  #include "UObject/ConstructorHelpers.h"
- 
+
 -AProximaRuntimeWall::AProximaRuntimeWall()
 +namespace
  {
@@ -547,7 +547,7 @@ index 92e2697..07d73c5 100644
 +    return FTransform(FRotator::ZeroRotator, FVector(X, 0.0, Z), FVector(Width, Depth, Height) / 100.0);
 +}
  }
- 
+
 -void AProximaRuntimeWall::SetSelected(bool bSelected)
 +AProximaRuntimeWall::AProximaRuntimeWall()
  {
@@ -581,7 +581,7 @@ index 92e2697..07d73c5 100644
 +    }
 +    Glass->SetCastShadow(false);
  }
- 
+
 -void AProximaRuntimeWall::InitializeFromData(
 -    const FProximaWallData& Data,
 -    float PropertyOriginX,
@@ -795,7 +795,7 @@ index 7ab8bb1..ea16bf7 100644
  #include "BuildMode/ProximaWallPreview.h"
 +#include "BuildMode/ProximaMaterials.h"
 +#include "Materials/MaterialInstanceDynamic.h"
- 
+
  #include "BuildMode/ProximaWallGeometry.h"
  #include "Components/StaticMeshComponent.h"
 @@ -43,3 +45,16 @@ void AProximaWallPreview::UpdatePreview(
@@ -1455,11 +1455,11 @@ index b596178..74e82ba 100644
 @@ -1,4 +1,5 @@
  #include "Building/ProximaBuildingManager.h"
 +#include "Building/ProximaGeometryKernel.h"
- 
+
  void UProximaBuildingManager::Initialize(FSubsystemCollectionBase& Collection)
  {
 @@ -8,16 +9,15 @@ void UProximaBuildingManager::Initialize(FSubsystemCollectionBase& Collection)
- 
+
  bool UProximaBuildingManager::AddWall(const FProximaWallData& Wall)
  {
 -    if (!Wall.WallId.IsValid() || Wall.IsDegenerate() ||
@@ -1468,7 +1468,7 @@ index b596178..74e82ba 100644
      {
          return false;
      }
- 
+
 -    const int32 NewIndex = Walls.Add(Wall);
 -    WallIdToIndex.Add(Wall.WallId.Id.Value, NewIndex);
 -    BroadcastWallsChanged();
@@ -1477,7 +1477,7 @@ index b596178..74e82ba 100644
 +    Candidate.Add(Wall);
 +    return ReplaceModel(Candidate, Slabs);
  }
- 
+
  bool UProximaBuildingManager::RemoveWall(const FProximaWallID& WallId)
 @@ -38,7 +38,7 @@ bool UProximaBuildingManager::UpdateWall(const FProximaWallID& WallId, const FPr
  {
@@ -1491,7 +1491,7 @@ index b596178..74e82ba 100644
 @@ -51,9 +51,9 @@ bool UProximaBuildingManager::UpdateWall(const FProximaWallID& WallId, const FPr
          }
      }
- 
+
 -    Walls[*Index] = NewData;
 -    BroadcastWallsChanged();
 -    return true;
@@ -1499,12 +1499,12 @@ index b596178..74e82ba 100644
 +    Candidate[*Index] = NewData;
 +    return ReplaceModel(Candidate, Slabs);
  }
- 
+
  bool UProximaBuildingManager::AddWallOpening(const FProximaWallID& WallId, const FProximaOpeningData& Opening)
 @@ -64,43 +64,10 @@ bool UProximaBuildingManager::AddWallOpening(const FProximaWallID& WallId, const
          return false;
      }
- 
+
 -    FProximaWallData& Wall = Walls[*Index];
 -    if (!Opening.OpeningId.IsValid() || Opening.WidthCm <= 0.0f || (Opening.TopHeightCm - Opening.BottomHeightCm) <= 0.0f ||
 -        Opening.TopHeightCm <= Opening.BottomHeightCm ||
@@ -1547,7 +1547,7 @@ index b596178..74e82ba 100644
 +    // Use the same complete validation as create, modify and load.
 +    return UpdateWall(WallId, Candidate);
  }
- 
+
  bool UProximaBuildingManager::RemoveWallOpening(const FProximaWallID& WallId, const FProximaOpeningID& OpeningId)
 @@ -152,6 +119,7 @@ TArray<FProximaWallID> UProximaBuildingManager::GetWallsOnFloor(const FProximaFl
  void UProximaBuildingManager::ResetWalls()
@@ -1558,7 +1558,7 @@ index b596178..74e82ba 100644
      BroadcastWallsChanged();
  }
 @@ -159,27 +127,51 @@ void UProximaBuildingManager::ResetWalls()
- 
+
  bool UProximaBuildingManager::ReplaceWalls(const TArray<FProximaWallData>& NewWalls)
  {
 +    return ReplaceModel(NewWalls, Slabs);
@@ -1611,7 +1611,7 @@ index b596178..74e82ba 100644
      }
 +    return true;
 +}
- 
+
 +bool UProximaBuildingManager::ReplaceModel(
 +    const TArray<FProximaWallData>& NewWalls, const TArray<FProximaSlabData>& NewSlabs)
 +{
@@ -1692,18 +1692,18 @@ index 652c9a1..e93eb8b 100644
 @@ -1,4 +1,5 @@
  #include "Building/ProximaWallData.h"
 +#include "Building/ProximaGeometryKernel.h"
- 
+
  float FProximaWallData::GetLengthCm() const
  {
 @@ -7,7 +8,8 @@ float FProximaWallData::GetLengthCm() const
- 
+
  bool FProximaWallData::IsDegenerate(float ToleranceCm) const
  {
 -    return GetLengthCm() <= FMath::Max(0.0f, ToleranceCm);
 +    const float Length = GetLengthCm();
 +    return !FMath::IsFinite(Length) || Length <= FMath::Max(0.0f, ToleranceCm);
  }
- 
+
  FVector FProximaWallData::GetStartWorld(const FVector& PropertyOriginCm, float FloorElevationCm) const
 @@ -42,3 +44,30 @@ FRotator FProximaWallData::GetRotation() const
      const float YawDegrees = FMath::RadiansToDegrees(FMath::Atan2(Delta.Y, Delta.X));
@@ -1775,7 +1775,7 @@ index 343a2f8..d5d774d 100644
  #include "Components/InputComponent.h"
  #include "Interaction/ProximaInteractionSubsystem.h"
 @@ -28,7 +31,9 @@ AProximaCharacter::AProximaCharacter()
- 
+
      SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
      SpringArm->SetupAttachment(RootComponent);
 -    SpringArm->TargetArmLength = LiveCameraDistance;
@@ -1821,7 +1821,7 @@ index 493d48b..86a6250 100644
  #include "Interaction/ProximaInteractionSubsystem.h"
 -#include "Save/ProximaSaveSystem.h"
 -#include "Save/ProximaSaveData.h"
- 
+
  AProximaPlayerController::AProximaPlayerController()
  {
      PrimaryActorTick.bCanEverTick = true;
@@ -2800,7 +2800,7 @@ index 1bb96b4..53dd782 100644
  #include "Save/ProximaSerializationUtility.h"
  #include "ProximaModule.h"
 @@ -16,7 +17,8 @@ void UProximaSaveSystem::Initialize(FSubsystemCollectionBase& Collection)
- 
+
  bool UProximaSaveSystem::SaveProperty(const FString& SlotName, UProximaSaveData* Data)
  {
 -    if (Data == nullptr || SlotName.TrimStartAndEnd().IsEmpty())
@@ -2824,7 +2824,7 @@ index ad595a1..a66cfc9 100644
 --- a/Source/Proxima/Private/Save/ProximaSerializationUtility.cpp
 +++ b/Source/Proxima/Private/Save/ProximaSerializationUtility.cpp
 @@ -2,5 +2,6 @@
- 
+
  bool UProximaSerializationUtility::ValidateSaveVersion(int32 Version)
  {
 -    return Version == CurrentSaveFormatVersion;
@@ -2837,7 +2837,7 @@ index 974f3b1..c178c9b 100644
 +++ b/Source/Proxima/Private/Systems/Measurement/ProximaMeasurement.cpp
 @@ -31,5 +31,6 @@ bool UProximaMeasurement::TryParseMetricString(const FString& Input, float& OutC
      }
- 
+
      OutCentimeters = bCentimeters ? NumericValue : MetersToCm(NumericValue);
 +    if (!FMath::IsFinite(OutCentimeters)) { OutCentimeters = 0.0f; return false; }
      return true;
@@ -3126,7 +3126,7 @@ index 4270f03..7e6ab9d 100644
 +class UInstancedStaticMeshComponent;
 +class USceneComponent;
 +class UMaterialInstanceDynamic;
- 
+
  UCLASS()
  class PROXIMA_API AProximaRuntimeWall : public AActor
 @@ -10,27 +13,24 @@ class PROXIMA_API AProximaRuntimeWall : public AActor
@@ -3175,7 +3175,7 @@ index ae88826..1b75749 100644
 @@ -3,15 +3,22 @@
  #include "GameFramework/Actor.h"
  #include "ProximaWallPreview.generated.h"
- 
+
 +class UMaterialInstanceDynamic;
 +class UStaticMeshComponent;
 +
@@ -3188,7 +3188,7 @@ index ae88826..1b75749 100644
 +    void SetValid(bool bValue);
 +    virtual void BeginPlay() override;
      void UpdatePreview(const FVector2D& StartCm, const FVector2D& EndCm, float HeightCm, float ThicknessCm, float PlaneZ = 0.0f);
- 
+
  protected:
 +    UPROPERTY()
 +    TObjectPtr<UMaterialInstanceDynamic> PreviewMaterial;
@@ -3312,12 +3312,12 @@ index 23ef12d..b711f32 100644
  #include "Building/ProximaWallData.h"
 +#include "Building/ProximaSlabData.h"
  #include "ProximaBuildingManager.generated.h"
- 
+
  DECLARE_MULTICAST_DELEGATE(FProximaWallsChanged);
 @@ -50,13 +51,20 @@ public:
      UFUNCTION(BlueprintCallable, Category = "Proxima|Building")
      bool ReplaceWalls(const TArray<FProximaWallData>& NewWalls);
- 
+
 +    const TArray<FProximaWallData>& GetWallsView() const { return Walls; }
 +    const TArray<FProximaSlabData>& GetSlabsView() const { return Slabs; }
 +
@@ -3328,19 +3328,19 @@ index 23ef12d..b711f32 100644
      /** Geometry-level duplicate check used by placement preview and authoritative AddWall validation. */
 -    bool HasEquivalentWallGeometry(const FProximaWallData& Candidate, float ToleranceCm = 5.0f) const;
 +    bool HasEquivalentWallGeometry(const FProximaWallData& Candidate, float ToleranceCm = 0.1f) const;
- 
+
      static bool AreWallGeometriesEquivalent(
          const FProximaWallData& A,
          const FProximaWallData& B,
 -        float ToleranceCm = 5.0f);
 +        float ToleranceCm = 0.1f);
- 
+
      /** Runtime representation owners subscribe to this without making Actors authoritative. */
      FProximaWallsChanged& OnWallsChanged() { return WallsChanged; }
 @@ -68,6 +76,9 @@ private:
      UPROPERTY(Transient)
      TArray<FProximaWallData> Walls;
- 
+
 +    UPROPERTY(Transient)
 +    TArray<FProximaSlabData> Slabs;
 +
@@ -3549,7 +3549,7 @@ index 72e8ab9..9cfac44 100644
 @@ -101,6 +101,8 @@ struct FProximaWallData
      UPROPERTY(EditAnywhere, BlueprintReadWrite, SaveGame)
      TArray<FProximaWallID> ConnectedWalls;
- 
+
 +    /** Checks finite dimensions and every opening, including overlap and duplicate IDs. */
 +    bool IsValid() const;
      float GetLengthCm() const;
@@ -3593,31 +3593,31 @@ index f776a3a..d23045e 100644
 +++ b/Source/Proxima/Public/Core/ProximaCharacter.h
 @@ -15,10 +15,10 @@ public:
      AProximaCharacter();
- 
+
      UPROPERTY(EditDefaultsOnly, Category = "Proxima|Live", BlueprintReadOnly)
 -    float WalkSpeed = 450.0f;
 +    float WalkSpeed = 180.0f;
- 
+
      UPROPERTY(EditDefaultsOnly, Category = "Proxima|Live", BlueprintReadOnly)
 -    float SprintSpeed = 750.0f;
 +    float SprintSpeed = 450.0f;
- 
+
      UPROPERTY(EditDefaultsOnly, Category = "Proxima|Live", BlueprintReadOnly)
      float LiveCameraDistance = 700.0f;
 @@ -46,6 +46,7 @@ public:
- 
+
      /** Live-mode right movement called by the controller-owned input router. */
      void MoveRight(float Value);
 +    void ToggleInspectionView();
- 
+
  protected:
      virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 @@ -58,6 +59,7 @@ protected:
- 
+
  private:
      bool bSprintRequested = false;
 +    bool bInspectionView = true;
- 
+
      void StartSprint();
      void StopSprint();
 diff --git a/Source/Proxima/Public/Core/ProximaPlayerController.h b/Source/Proxima/Public/Core/ProximaPlayerController.h
@@ -3636,7 +3636,7 @@ index b4625e2..8d5cb94 100644
  #include "ProximaPlayerController.generated.h"
 +class AProximaBuildCamera;
 +class UProximaWorkshopComponent;
- 
+
  UCLASS()
  class PROXIMA_API AProximaPlayerController : public APlayerController
  {
@@ -3764,7 +3764,7 @@ index 16df8e3..2214114 100644
 +#include "Building/ProximaSlabData.h"
  #include "Systems/Measurement/ProximaMeasurementSubsystem.h"
  #include "ProximaSaveData.generated.h"
- 
+
 @@ -11,7 +12,8 @@ UENUM(BlueprintType)
  enum class EProximaSaveFormatVersion : uint8
  {
@@ -3773,19 +3773,19 @@ index 16df8e3..2214114 100644
 +    V1 = 1,
 +    V2 = 2
  };
- 
+
  USTRUCT(BlueprintType)
 @@ -23,7 +25,7 @@ struct FProximaSaveHeader
      FName Format = FName(TEXT("ProximaSave"));
- 
+
      UPROPERTY(EditAnywhere, BlueprintReadWrite, SaveGame)
 -    int32 Version = static_cast<int32>(EProximaSaveFormatVersion::V1);
 +    int32 Version = static_cast<int32>(EProximaSaveFormatVersion::V2);
- 
+
      UPROPERTY(EditAnywhere, BlueprintReadWrite, SaveGame)
      FDateTime SaveTimeUtc;
 @@ -56,4 +58,7 @@ public:
- 
+
      UPROPERTY(EditAnywhere, BlueprintReadWrite, SaveGame)
      FProximaMeasurementConfig MeasurementConfig;
 +
@@ -3798,11 +3798,11 @@ index e698ab3..24722e7 100644
 +++ b/Source/Proxima/Public/Save/ProximaSerializationUtility.h
 @@ -10,7 +10,7 @@ class PROXIMA_API UProximaSerializationUtility : public UBlueprintFunctionLibrar
      GENERATED_BODY()
- 
+
  public:
 -    static constexpr int32 CurrentSaveFormatVersion = 1;
 +    static constexpr int32 CurrentSaveFormatVersion = 2;
- 
+
      UFUNCTION(BlueprintPure, Category = "Proxima|Serialization")
      static int32 GetSaveFormatVersion() { return CurrentSaveFormatVersion; }
 diff --git a/Source/Proxima/Tests/Private/Tests/HouseWorkshopTest.cpp b/Source/Proxima/Tests/Private/Tests/HouseWorkshopTest.cpp
@@ -3968,7 +3968,7 @@ index 7b07f4e..31dbac9 100644
 +++ b/Source/Proxima/Tests/Private/Tests/WallDeletionTest.cpp
 @@ -1,6 +1,7 @@
  #if WITH_DEV_AUTOMATION_TESTS
- 
+
  #include "Misc/AutomationTest.h"
 +#include "Engine/GameInstance.h"
  #include "Building/ProximaWallData.h"
