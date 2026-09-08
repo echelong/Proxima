@@ -102,6 +102,28 @@ def main():
             'Stair interaction routing is invalid: '
             'PrimaryAction must own stair clicks and CommitStair'
         )
+    character_cpp = (
+        ROOT /
+        'Source/Proxima/Private/Core/ProximaCharacter.cpp'
+    ).read_text()
+
+    if (
+        'ProximaVisibleCharacterMesh' not in character_cpp or
+        'ProximaVisibleCharacterAnimation' not in character_cpp or
+        'LiveCameraDistance' not in character_cpp
+    ):
+        raise ValueError(
+            'Visible third-person character wiring is incomplete'
+        )
+
+    if not (
+        ROOT /
+        'Content/Characters'
+    ).is_dir():
+        raise ValueError(
+            'Visible character Content/Characters directory is missing'
+        )
+
     print('PASS: Unreal target, EnhancedInput disabled, automatic upgrade off, input ownership, WASD, stair interaction routing and Python syntax.')
     print('This check does not compile Unreal C++ or verify rendering.')
     return 0

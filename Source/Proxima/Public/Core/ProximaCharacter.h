@@ -21,7 +21,7 @@ public:
     float SprintSpeed = 450.0f;
 
     UPROPERTY(EditDefaultsOnly, Category = "Proxima|Live", BlueprintReadOnly)
-    float LiveCameraDistance = 700.0f;
+    float LiveCameraDistance = 450.0f;
 
     UPROPERTY(EditDefaultsOnly, Category = "Proxima|Live", BlueprintReadOnly)
     float LiveCameraPitchMin = -30.0f;
@@ -59,7 +59,7 @@ protected:
 
 private:
     bool bSprintRequested = false;
-    bool bInspectionView = true;
+    bool bInspectionView = false;
 
     void StartSprint();
     void StopSprint();

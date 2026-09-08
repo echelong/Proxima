@@ -1,5 +1,9 @@
 #include "Core/ProximaCharacter.h"
 #include "Components/CapsuleComponent.h"
+#include "UObject/ConstructorHelpers.h"
+#include "Engine/SkeletalMesh.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Animation/AnimInstance.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -13,6 +17,51 @@ AProximaCharacter::AProximaCharacter()
     bUseControllerRotationPitch = false;
     bUseControllerRotationYaw = false;
     bUseControllerRotationRoll = false;
+
+    /*
+     * Proxima visible third-person character.
+     */
+    static ConstructorHelpers::FObjectFinder<USkeletalMesh>
+        ProximaVisibleCharacterMesh(
+            TEXT("/Game/Characters/Mannequins/Meshes/SKM_Manny.SKM_Manny"));
+
+    static ConstructorHelpers::FClassFinder<UAnimInstance>
+        ProximaVisibleCharacterAnimation(
+            TEXT("/Game/Characters/Mannequins/Animations/ABP_Manny"));
+
+    if (ProximaVisibleCharacterMesh.Succeeded())
+    {
+        GetMesh()->SetSkeletalMesh(
+            ProximaVisibleCharacterMesh.Object);
+
+        GetMesh()->SetRelativeLocation(
+            FVector(
+                0.0f,
+                0.0f,
+                -90.0f));
+
+        GetMesh()->SetRelativeRotation(
+            FRotator(
+                0.0f,
+                -90.0f,
+                0.0f));
+
+        GetMesh()->SetCollisionEnabled(
+            ECollisionEnabled::NoCollision);
+
+        GetMesh()->SetOwnerNoSee(false);
+        GetMesh()->SetOnlyOwnerSee(false);
+        GetMesh()->SetCastShadow(true);
+    }
+
+    if (ProximaVisibleCharacterAnimation.Succeeded())
+    {
+        GetMesh()->SetAnimationMode(
+            EAnimationMode::AnimationBlueprint);
+
+        GetMesh()->SetAnimInstanceClass(
+            ProximaVisibleCharacterAnimation.Class);
+    }
 
     UCharacterMovementComponent* Movement = GetCharacterMovement();
     Movement->MaxWalkSpeed = WalkSpeed;
@@ -29,17 +78,33 @@ AProximaCharacter::AProximaCharacter()
     // Character rotates toward movement direction; movement vectors are camera/control-yaw relative.
     Movement->bOrientRotationToMovement = true;
 
+    /*
+     * Current Proxima stairs use risers below 18 cm.
+     */
+    Movement->MaxStepHeight = 35.0f;
+    Movement->SetWalkableFloorAngle(50.0f);
+
     SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
     SpringArm->SetupAttachment(RootComponent);
     GetCapsuleComponent()->InitCapsuleSize(30.0f, 90.0f);
     SpringArm->SetRelativeLocation(FVector(0.0f, 0.0f, 70.0f));
-    SpringArm->TargetArmLength = 0.0f;
+    SpringArm->TargetArmLength =
+        LiveCameraDistance;
+
+    SpringArm->bDoCollisionTest = true;
+    SpringArm->ProbeSize = 12.0f;
     SpringArm->bUsePawnControlRotation = true;
     SpringArm->bInheritPitch = true;
     SpringArm->bInheritYaw = true;
     SpringArm->bInheritRoll = false;
     SpringArm->bEnableCameraLag = false;
     SpringArm->CameraLagSpeed = 20.0f;
+    SpringArm->SocketOffset =
+        FVector(
+            0.0f,
+            0.0f,
+            25.0f);
+
     SpringArm->bEnableCameraRotationLag = false;
     SpringArm->CameraRotationLagSpeed = 20.0f;
 
